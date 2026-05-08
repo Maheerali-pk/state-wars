@@ -45,16 +45,20 @@ export class GameState {
   private app: Application;
   private graphics: Graphics;
   private zoom: number = 1;
-  private maxZoom: number = 12;
+  private maxZoom: number = 15;
   private minZoom: number = 0.1;
   private isDragging: boolean = false;
+  private isArrowDragging: boolean = false;
   private dragStart: { x: number; y: number } = { x: 0, y: 0 };
   private pointerDownPos: { x: number; y: number } = { x: 0, y: 0 };
-  private mouseButtonDown: number = 0;
+  private mouseButtonDown: number = -1;
+  private dragArrow: Graphics;
+  private arrowStartPoint: { x: number; y: number } = { x: 0, y: 0 };
 
   constructor() {
     this.app = new Application();
     this.graphics = new Graphics();
+    this.dragArrow = new Graphics();
 
     void this.init();
   }
@@ -163,6 +167,93 @@ export class GameState {
     }, -1);
     this.graphics.setChildIndex(selectedState.graphics, maxStateChildIndex);
   }
+  private getStagePointFromCanvas(mouseX: number, mouseY: number) {
+    return {
+      x: (mouseX - this.app.stage.position.x) / this.zoom,
+      y: (mouseY - this.app.stage.position.y) / this.zoom,
+    };
+  }
+  private getStateAtCanvasPoint(mouseX: number, mouseY: number) {
+    const stagePoint = this.getStagePointFromCanvas(mouseX, mouseY);
+    return this.states.find((state) => {
+      const localPoint = state.graphics.toLocal(stagePoint, this.app.stage);
+      return state.graphics.containsPoint(localPoint);
+    });
+  }
+  private drawDragArrowToCanvasPoint(mouseX: number, mouseY: number) {
+    const stagePoint = this.getStagePointFromCanvas(mouseX, mouseY);
+    const endPoint = this.graphics.toLocal(stagePoint, this.app.stage);
+    const startPoint = this.arrowStartPoint;
+    const dx = endPoint.x - startPoint.x;
+    const dy = endPoint.y - startPoint.y;
+    const length = Math.hypot(dx, dy);
+
+    this.dragArrow.clear();
+    if (length < 0.1) return;
+
+    const ux = dx / length;
+    const uy = dy / length;
+    const px = -uy;
+    const py = ux;
+    const maxZoomToConsider = 7;
+
+    const zoomAwareScale = this.zoom < maxZoomToConsider ? Math.min(3.4, Math.max(0.8, 1.35 / Math.pow(this.zoom, 1.45))) : 0.5;
+
+    const shaftBaseWidth = 3.5 * zoomAwareScale;
+    const shaftNeckWidth = 2.2 * zoomAwareScale;
+    const headLength = 7.2 * zoomAwareScale;
+    const headWidth = 6.2 * zoomAwareScale;
+    const chevronDepth = 1.5 * zoomAwareScale;
+    const borderWidth = 0.42 * zoomAwareScale;
+
+    if (length <= headLength + 0.5) return;
+
+    const bodyLength = length - headLength;
+    const pointAt = (forward: number, lateral: number) => ({
+      x: startPoint.x + ux * forward + px * lateral,
+      y: startPoint.y + uy * forward + py * lateral,
+    });
+
+    const tailLeft = pointAt(0, shaftBaseWidth / 2);
+    const tailRight = pointAt(0, -shaftBaseWidth / 2);
+    const neckLeft = pointAt(bodyLength, shaftNeckWidth / 2);
+    const neckRight = pointAt(bodyLength, -shaftNeckWidth / 2);
+    const wingLeft = pointAt(bodyLength + chevronDepth, headWidth / 2);
+    const wingRight = pointAt(bodyLength + chevronDepth, -headWidth / 2);
+    const tip = pointAt(length, 0);
+
+    const arrowPath = (g: Graphics) =>
+      g
+        .moveTo(tailLeft.x, tailLeft.y)
+        .lineTo(neckLeft.x, neckLeft.y)
+        .lineTo(wingLeft.x, wingLeft.y)
+        .lineTo(tip.x, tip.y)
+        .lineTo(wingRight.x, wingRight.y)
+        .lineTo(neckRight.x, neckRight.y)
+        .lineTo(tailRight.x, tailRight.y)
+        .closePath();
+
+    const shadowOffset = 0.35 * zoomAwareScale;
+    this.dragArrow.translateTransform(ux * shadowOffset, uy * shadowOffset);
+    arrowPath(this.dragArrow).fill({ color: "#0B1220", alpha: 0.35 });
+    this.dragArrow.translateTransform(-ux * shadowOffset, -uy * shadowOffset);
+
+    arrowPath(this.dragArrow)
+      .fill({ color: "#F8FAFC", alpha: 0.96 })
+      .stroke({ color: "#0B1220", width: borderWidth, alpha: 1, join: "miter", cap: "butt" });
+
+    const highlightInset = 0.35 * zoomAwareScale;
+    const hlTail = pointAt(highlightInset * 1.5, shaftBaseWidth / 2 - highlightInset);
+    const hlNeck = pointAt(bodyLength - highlightInset * 0.4, shaftNeckWidth / 2 - highlightInset);
+    const hlWing = pointAt(bodyLength + chevronDepth - highlightInset * 0.6, headWidth / 2 - highlightInset * 1.6);
+    const hlTip = pointAt(length - highlightInset * 2.2, 0);
+    this.dragArrow
+      .moveTo(hlTail.x, hlTail.y)
+      .lineTo(hlNeck.x, hlNeck.y)
+      .lineTo(hlWing.x, hlWing.y)
+      .lineTo(hlTip.x, hlTip.y)
+      .stroke({ color: "#FFFFFF", width: borderWidth * 0.8, alpha: 0.55, cap: "round" });
+  }
   private drawStates() {
     for (const state of this.states) {
       state.graphics.eventMode = "static";
@@ -239,6 +330,7 @@ export class GameState {
       // Scale zoom by delta for consistent behavior across mouse/trackpad.
       this.zoom *= Math.exp(-event.deltaY * 0.0015);
       this.zoom = Math.min(this.maxZoom, Math.max(this.minZoom, this.zoom));
+      console.log(this.zoom);
 
       if (this.zoom === prevZoom) return;
 
@@ -250,18 +342,24 @@ export class GameState {
     });
     const stopDragging = () => {
       this.isDragging = false;
+      this.isArrowDragging = false;
       this.dragStart = { x: 0, y: 0 };
       this.pointerDownPos = { x: 0, y: 0 };
+      this.mouseButtonDown = -1;
+      this.dragArrow.clear();
     };
 
     this.app.canvas.style.touchAction = "none";
 
     this.app.canvas.addEventListener("pointermove", (event) => {
-      if (!this.isDragging) return;
-
       const rect = this.app.canvas.getBoundingClientRect();
       const mouseX = event.clientX - rect.left;
       const mouseY = event.clientY - rect.top;
+
+      if (this.isArrowDragging && this.mouseButtonDown === 0) {
+        this.drawDragArrowToCanvasPoint(mouseX, mouseY);
+      }
+      if (!this.isDragging) return;
       const deltaX = mouseX - this.dragStart.x;
       const deltaY = mouseY - this.dragStart.y;
       this.app.stage.position.set(this.app.stage.position.x + deltaX, this.app.stage.position.y + deltaY);
@@ -284,8 +382,16 @@ export class GameState {
         const rect = this.app.canvas.getBoundingClientRect();
         const mouseX = event.clientX - rect.left;
         const mouseY = event.clientY - rect.top;
+        const clickedState = this.getStateAtCanvasPoint(mouseX, mouseY);
+        if (!clickedState) return;
+
+        const stagePoint = this.getStagePointFromCanvas(mouseX, mouseY);
+        this.arrowStartPoint = { x: clickedState.labelPoint.x, y: clickedState.labelPoint.y };
         this.pointerDownPos = { x: mouseX, y: mouseY };
         this.dragStart = { x: mouseX, y: mouseY };
+        this.isArrowDragging = true;
+        this.drawDragArrowToCanvasPoint(mouseX, mouseY);
+        this.app.canvas.setPointerCapture(event.pointerId);
       }
       this.mouseButtonDown = event.button;
     });
@@ -317,6 +423,7 @@ export class GameState {
           this.bringStateToFront(newSelectedState);
         }
       }
+      this.dragArrow.clear();
       //Drag
       if (this.app.canvas.hasPointerCapture(event.pointerId)) {
         this.app.canvas.releasePointerCapture(event.pointerId);
@@ -336,6 +443,7 @@ export class GameState {
     this.loadMapData(worldData as FeatureCollection);
     this.drawStates();
     this.drawStateLabels();
+    this.graphics.addChild(this.dragArrow);
     await this.renderApp();
     for (let i = 0; i < 10; i++) {
       let randomAttackerStateId = this.states[Math.floor(Math.random() * this.states.length)].id;
