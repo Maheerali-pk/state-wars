@@ -3,12 +3,84 @@ import { Application, Assets, Container, Graphics, Text } from "pixi.js";
 import { State } from "./classes/state";
 import worldData from "../data/all-data.json";
 import { detectCollision, getPerpendicularLineAtStart } from "./helpers/geom";
+import { colors } from "./helpers/constants";
 
 interface Player {
   name: string;
   id: string;
-  color: string;
+  colors: PlayerColors;
 }
+export interface PlayerColors {
+  stateBackground: string;
+  unitMarker: string;
+  unit: string;
+  basic: string;
+}
+const PLAYER_COLORS: PlayerColors[] = [
+  // Blue
+  {
+    stateBackground: "#6EA8FE",
+    unitMarker: "#2F5FB3",
+    unit: "#FFFFFF",
+    basic: "#4D8DFF",
+  },
+
+  // Red
+  {
+    stateBackground: "#F28B82",
+    unitMarker: "#B9382F",
+    unit: "#FFFFFF",
+    basic: "#E85B52",
+  },
+
+  // Green
+  {
+    stateBackground: "#81C995",
+    unitMarker: "#2E7D4F",
+    unit: "#FFFFFF",
+    basic: "#4CAF6A",
+  },
+
+  // Purple
+  {
+    stateBackground: "#B39DDB",
+    unitMarker: "#6B46C1",
+    unit: "#FFFFFF",
+    basic: "#8B5CF6",
+  },
+
+  // Orange
+  {
+    stateBackground: "#F6AD55",
+    unitMarker: "#C05621",
+    unit: "#FFFFFF",
+    basic: "#ED8936",
+  },
+
+  // Cyan
+  {
+    stateBackground: "#76E4F7",
+    unitMarker: "#0E7490",
+    unit: "#FFFFFF",
+    basic: "#06B6D4",
+  },
+
+  // Pink
+  {
+    stateBackground: "#F9A8D4",
+    unitMarker: "#BE185D",
+    unit: "#FFFFFF",
+    basic: "#EC4899",
+  },
+
+  // Yellow
+  {
+    stateBackground: "#FDE68A",
+    unitMarker: "#B7791F",
+    unit: "#1F2937",
+    basic: "#FACC15",
+  },
+];
 
 interface MovingUnitDetails {
   position: {
@@ -38,9 +110,10 @@ export class GameState {
   private states: State[] = [];
   private units: Unit[] = [];
   private players: Player[] = [
-    { name: "Player 1", id: "1", color: "rgb(255, 0, 0)" },
-    { name: "Player 2", id: "2", color: "rgb(0, 0, 255)" },
+    { name: "Player 1", id: "1", colors: PLAYER_COLORS[0] },
+    { name: "Player 2", id: "2", colors: PLAYER_COLORS[1] },
   ];
+  private myPlayerId: string = "1";
   private selectedStateId: string = "";
   private app: Application;
   private graphics: Graphics;
@@ -54,6 +127,8 @@ export class GameState {
   private mouseButtonDown: number = -1;
   private dragArrow: Graphics;
   private arrowStartPoint: { x: number; y: number } = { x: 0, y: 0 };
+  private arrowDestinationStateId: string | null = null;
+  private arrowStartStateId: string | null = null;
 
   constructor() {
     this.app = new Application();
@@ -64,6 +139,22 @@ export class GameState {
   }
 
   private static readonly interBoldSrc = new URL("./fonts/Inter_18pt-Bold.ttf", import.meta.url).href;
+  private allotStatesToPlayers() {
+    const state1 = this.states.find((state) => state.id === "66");
+    const state2 = this.states.find((state) => state.id === "67");
+    const state3 = this.states.find((state) => state.id === "68");
+    const state4 = this.states.find((state) => state.id === "69");
+    const state5 = this.states.find((state) => state.id === "70");
+    if (!state1 || !state2 || !state3 || !state4 || !state5) return;
+    state1.setOwnerId("1", this.players[0].colors.stateBackground);
+    state3.setOwnerId("1", this.players[0].colors.stateBackground);
+    state4.setOwnerId("1", this.players[0].colors.stateBackground);
+    state5.setOwnerId("1", this.players[0].colors.stateBackground);
+    state2.setOwnerId("2", this.players[1].colors.stateBackground);
+  }
+  private getStateById(stateId: string): State | undefined {
+    return this.states.find((state) => state.id === stateId);
+  }
 
   private createUnitMovement(attackerStateId: string, defenderStateId: string, unitCount: number) {
     const attackerState = this.states.find((state) => state.id === attackerStateId);
@@ -273,35 +364,51 @@ export class GameState {
   private static readonly LABEL_FONT_SIZE = 32;
   private static readonly LABEL_TARGET_HEIGHT = 2;
 
+  private drawStateLabel(state: State) {
+    if (state.markerElement) {
+      state.markerElement.destroy();
+    }
+    const marker = new Container();
+    marker.position.set(state.labelPoint.x, state.labelPoint.y);
+
+    const isDestination = this.arrowDestinationStateId === state.id;
+    const circle = new Graphics();
+    const owner = this.players.find((player) => player.id === state.ownerId);
+    const color = owner ? owner.colors.unitMarker : "#1F2937";
+
+    if (isDestination) {
+      const owner = this.players.find((player) => player.id === state.ownerId);
+      const color = owner?.id === this.myPlayerId ? colors.arrowDestinationState.own : colors.arrowDestinationState.other;
+      circle.circle(0, 0, GameState.MARKER_GEOMETRY_RADIUS * 3).fill({ color: color });
+    }
+    circle.circle(0, 0, GameState.MARKER_GEOMETRY_RADIUS).fill({ color: color });
+    const markerScale = GameState.MARKER_RADIUS / GameState.MARKER_GEOMETRY_RADIUS;
+    circle.scale.set(markerScale);
+    marker.addChild(circle);
+
+    const label = new Text({
+      text: String(state.unitCount),
+      anchor: 0.5,
+      style: {
+        fontSize: GameState.LABEL_FONT_SIZE,
+        fontWeight: "700",
+        fill: "#ffffff",
+        fontFamily: "Inter",
+        align: "center",
+      },
+    });
+    state.setUnitLabelElement(label);
+    state.setMarkerElement(marker);
+    const scale = GameState.LABEL_TARGET_HEIGHT / GameState.LABEL_FONT_SIZE;
+    label.scale.set(scale);
+    label.position.set(0, 0);
+    marker.addChild(label);
+
+    this.graphics.addChild(marker);
+  }
   private drawStateLabels() {
     for (const state of this.states) {
-      const marker = new Container();
-      marker.position.set(state.labelPoint.x, state.labelPoint.y);
-
-      const circle = new Graphics();
-      circle.circle(0, 0, GameState.MARKER_GEOMETRY_RADIUS).fill({ color: "#1F2937" });
-      const markerScale = GameState.MARKER_RADIUS / GameState.MARKER_GEOMETRY_RADIUS;
-      circle.scale.set(markerScale);
-      marker.addChild(circle);
-
-      const label = new Text({
-        text: String(state.unitCount),
-        anchor: 0.5,
-        style: {
-          fontSize: GameState.LABEL_FONT_SIZE,
-          fontWeight: "700",
-          fill: "#ffffff",
-          fontFamily: "Inter",
-          align: "center",
-        },
-      });
-      state.setUnitLabelElement(label);
-      const scale = GameState.LABEL_TARGET_HEIGHT / GameState.LABEL_FONT_SIZE;
-      label.scale.set(scale);
-      label.position.set(0, 0);
-      marker.addChild(label);
-
-      this.graphics.addChild(marker);
+      this.drawStateLabel(state);
     }
   }
   private async renderApp() {
@@ -357,6 +464,17 @@ export class GameState {
       const mouseY = event.clientY - rect.top;
 
       if (this.isArrowDragging && this.mouseButtonDown === 0) {
+        const endState = this.getStateAtCanvasPoint(mouseX, mouseY);
+        const previousEndState = this.arrowDestinationStateId ? this.getStateById(this.arrowDestinationStateId) : null;
+        if (endState?.id !== this.arrowStartStateId) {
+          this.arrowDestinationStateId = endState?.id || null;
+        }
+        if (endState) {
+          this.drawStateLabel(endState);
+        }
+        if (previousEndState) {
+          this.drawStateLabel(previousEndState);
+        }
         this.drawDragArrowToCanvasPoint(mouseX, mouseY);
       }
       if (!this.isDragging) return;
@@ -384,14 +502,16 @@ export class GameState {
         const mouseY = event.clientY - rect.top;
         const clickedState = this.getStateAtCanvasPoint(mouseX, mouseY);
         if (!clickedState) return;
-
-        const stagePoint = this.getStagePointFromCanvas(mouseX, mouseY);
+        if (clickedState.ownerId !== this.myPlayerId) {
+          return;
+        }
         this.arrowStartPoint = { x: clickedState.labelPoint.x, y: clickedState.labelPoint.y };
         this.pointerDownPos = { x: mouseX, y: mouseY };
         this.dragStart = { x: mouseX, y: mouseY };
         this.isArrowDragging = true;
+        this.arrowStartStateId = clickedState.id;
         this.drawDragArrowToCanvasPoint(mouseX, mouseY);
-        this.app.canvas.setPointerCapture(event.pointerId);
+        // this.app.canvas.setPointerCapture(event.pointerId);
       }
       this.mouseButtonDown = event.button;
     });
@@ -423,6 +543,16 @@ export class GameState {
           this.bringStateToFront(newSelectedState);
         }
       }
+      if (this.mouseButtonDown === 0 && this.isArrowDragging) {
+        const endState = this.arrowDestinationStateId ? this.getStateById(this.arrowDestinationStateId) : null;
+
+        this.arrowDestinationStateId = null;
+        this.arrowStartStateId = null;
+        if (endState) {
+          this.drawStateLabel(endState);
+        }
+      }
+
       this.dragArrow.clear();
       //Drag
       if (this.app.canvas.hasPointerCapture(event.pointerId)) {
@@ -441,18 +571,19 @@ export class GameState {
   private async init() {
     await this.loadInterBoldFont();
     this.loadMapData(worldData as FeatureCollection);
+    this.allotStatesToPlayers();
     this.drawStates();
     this.drawStateLabels();
     this.graphics.addChild(this.dragArrow);
     await this.renderApp();
-    for (let i = 0; i < 10; i++) {
-      let randomAttackerStateId = this.states[Math.floor(Math.random() * this.states.length)].id;
-      let randomDefenderStateId = this.states[Math.floor(Math.random() * this.states.length)].id;
-      while (randomAttackerStateId === randomDefenderStateId) {
-        randomDefenderStateId = this.states[Math.floor(Math.random() * this.states.length)].id;
-      }
-      this.createUnitMovement(randomAttackerStateId, randomDefenderStateId, 100);
-    }
+    // for (let i = 0; i < 10; i++) {
+    //   let randomAttackerStateId = this.states[Math.floor(Math.random() * this.states.length)].id;
+    //   let randomDefenderStateId = this.states[Math.floor(Math.random() * this.states.length)].id;
+    //   while (randomAttackerStateId === randomDefenderStateId) {
+    //     randomDefenderStateId = this.states[Math.floor(Math.random() * this.states.length)].id;
+    //   }
+    //   this.createUnitMovement(randomAttackerStateId, randomDefenderStateId, 100);
+    // }
 
     this.update();
   }

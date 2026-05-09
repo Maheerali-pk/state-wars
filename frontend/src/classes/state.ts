@@ -1,5 +1,5 @@
 import { Feature, GeoJsonProperties, Geometry } from "geojson";
-import { Graphics, Text } from "pixi.js";
+import { Container, Graphics, Text } from "pixi.js";
 import { colors } from "../helpers/constants";
 
 export class State {
@@ -18,6 +18,7 @@ export class State {
   unitIncreaseSpeed: number = 1000;
   lastUnitIncreaseTimestamp: number = 0;
   unitLabelElement: Text;
+  markerElement: Container;
   geometry: Geometry;
   isSelected: boolean = false;
   isHovered: boolean = false;
@@ -30,10 +31,9 @@ export class State {
     this.geometry = feature.geometry;
     this.unitLabelElement = new Text();
 
+    this.markerElement = new Container();
     let polygongfx = new Graphics();
-
     if (!this.geometry) return;
-
     this.drawGeometryToGraphics(polygongfx, State.DEFAULT_BORDER_COLOR, State.DEFAULT_BORDER_WIDTH);
     this.graphics = polygongfx;
     const labelPoint = this.getLabelPoint(this.geometry as Geometry);
@@ -73,6 +73,9 @@ export class State {
   }
   public setUnitLabelElement(label: Text) {
     this.unitLabelElement = label;
+  }
+  public setMarkerElement(marker: Container) {
+    this.markerElement = marker;
   }
   private redraw() {
     const borderColor = this.isSelected ? colors.selectedState : State.DEFAULT_BORDER_COLOR;
@@ -122,7 +125,13 @@ export class State {
     if (now - this.lastUnitIncreaseTimestamp < this.unitIncreaseSpeed) return;
     this.unitCount++;
     this.lastUnitIncreaseTimestamp = now;
-    this.unitLabelElement.text = this.id;
+    // this.unitLabelElement.text = String(this.unitCount);
+    this.unitLabelElement.text = String(this.unitCount);
+  }
+  public setOwnerId(ownerId: string, ownerColor: string) {
+    this.ownerId = ownerId;
+    this.fillColor = ownerColor;
+    this.redraw();
   }
   public select() {
     this.isSelected = true;
