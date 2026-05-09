@@ -11,6 +11,7 @@
   },
   "dependencies": {
     "@pixi/filter-drop-shadow": "^5.2.0",
+    "@types/geojson": "^7946.0.16",
     "pixi.js": "^8.8.1"
   },
   "devDependencies": {

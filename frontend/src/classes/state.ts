@@ -128,6 +128,10 @@ export class State {
     // this.unitLabelElement.text = String(this.unitCount);
     this.unitLabelElement.text = String(this.unitCount);
   }
+  public setUnitCount(unitCount: number) {
+    this.unitCount = unitCount;
+    this.unitLabelElement.text = String(unitCount);
+  }
   public setOwnerId(ownerId: string, ownerColor: string) {
     this.ownerId = ownerId;
     this.fillColor = ownerColor;

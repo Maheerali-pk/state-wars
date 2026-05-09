@@ -101,6 +101,8 @@ interface Unit {
   graphics: Graphics;
   lastMovedTimestamp: number;
   firstRenderAt: number;
+  destinationStateId?: string;
+  destroyed: boolean;
 
   destinationCircle: { x: number; y: number; radius: number };
 }
@@ -182,6 +184,8 @@ export class GameState {
         const indexDifferenceFromMid = Math.abs(j - Math.floor(CHUNK_SIZE / 2));
         const chunkLocalDelay = indexDifferenceFromMid * CHUNK_LOCAL_DELAY;
         const newUnit: Unit = {
+          destroyed: false,
+          destinationStateId: defenderStateId,
           destinationCircle: {
             x: perpendicularLineEnd.end.x,
             y: perpendicularLineEnd.end.y,
@@ -222,6 +226,25 @@ export class GameState {
         if (detectCollision({ x: unit.movingDetails.position.x, y: unit.movingDetails.position.y, radius: 0.3 }, unit.destinationCircle)) {
           unit.graphics.tint = "rgba(0,0,0,0)";
           unit.graphics.destroy();
+          const destinationState = unit.destinationStateId ? this.getStateById(unit.destinationStateId) : null;
+          const attackingState = unit.stateId ? this.getStateById(unit.stateId) : null;
+
+          if (destinationState && !unit.destroyed) {
+            unit.destroyed = true;
+
+            this.units = this.units.filter((u) => u !== unit);
+            if (destinationState.ownerId === attackingState?.ownerId) {
+              destinationState.setUnitCount(destinationState.unitCount + 1);
+            } else {
+              destinationState.setUnitCount(destinationState.unitCount - 1);
+            }
+            const attackingPlayer = unit.playerId ? this.players.find((player) => player.id === unit.playerId) : null;
+            if (destinationState.unitCount <= 0 && attackingPlayer) {
+              destinationState.setOwnerId(attackingPlayer.id, attackingPlayer.colors.stateBackground);
+            }
+          }
+          if (destinationState) this.drawStateLabel(destinationState);
+          if (attackingState) this.drawStateLabel(attackingState);
           continue;
         }
 
@@ -544,12 +567,20 @@ export class GameState {
         }
       }
       if (this.mouseButtonDown === 0 && this.isArrowDragging) {
-        const endState = this.arrowDestinationStateId ? this.getStateById(this.arrowDestinationStateId) : null;
+        const actualEndState = this.getStateAtCanvasPoint(mouseX, mouseY);
+        const startState = this.arrowStartStateId ? this.getStateById(this.arrowStartStateId) : null;
+
+        if (actualEndState && actualEndState.id !== this.arrowStartStateId && startState) {
+          this.createUnitMovement(startState.id, actualEndState.id, startState.unitCount);
+          startState.setUnitCount(0);
+        }
+
+        const lastStoreEndState = this.arrowDestinationStateId ? this.getStateById(this.arrowDestinationStateId) : null;
 
         this.arrowDestinationStateId = null;
         this.arrowStartStateId = null;
-        if (endState) {
-          this.drawStateLabel(endState);
+        if (lastStoreEndState) {
+          this.drawStateLabel(lastStoreEndState);
         }
       }
 
