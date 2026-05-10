@@ -4,6 +4,7 @@ export interface Player {
   name: string;
   id: string;
   colors: PlayerColors;
+  coin: number;
 }
 export interface PlayerColors {
   stateBackground: string;
@@ -44,7 +45,11 @@ type CreateUnitMovementEvent = {
   type: "create-unit-movement";
   data: { attackerStateId: string; defenderStateId: string; unitCount: number };
 };
-export type ClientToServerEvent = JoinedQueueEvent | CreateUnitMovementEvent;
+type UpgradeStateEvent = {
+  type: "upgrade-state";
+  data: { stateId: string };
+};
+export type ClientToServerEvent = JoinedQueueEvent | CreateUnitMovementEvent | UpgradeStateEvent;
 
 type UpdateStatesEvent = {
   type: "update-states";
@@ -66,12 +71,17 @@ type UpdateStateOwnerChangesEvent = {
   type: "update-state-owner-changes";
   data: { id: string; ownerId: string }[];
 };
+type UpdateGoldCount = {
+  type: "update-gold-count";
+  data: { playerId: string; goldCount: number }[];
+};
 export type ServerToClientEvent =
   | UpdateStatesEvent
   | UpdateBatchMovementsEvent
   | GameStartedEvent
   | UpdateUnitCountsEvent
-  | UpdateStateOwnerChangesEvent;
+  | UpdateStateOwnerChangesEvent
+  | UpdateGoldCount;
 
 export interface BackendState {
   id: string;
@@ -81,6 +91,7 @@ export interface BackendState {
   unitIncreaseTime: number;
   lastUnitIncreaseTimestamp: number;
   centerPoint: { x: number; y: number };
+  baseIncome: number;
 }
 export interface BatchMovement {
   id: string;
@@ -97,6 +108,7 @@ export interface BackendPlayer {
   userId: string;
   name: string;
   color: PlayerColors;
+  goldCount: number;
 }
 export interface User {
   id: string;

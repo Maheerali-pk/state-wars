@@ -1,7 +1,9 @@
 import { FeatureCollection } from "geojson";
-import { Application, Assets, Container, Graphics, Text } from "pixi.js";
+import { Application, Assets, Container, Graphics, Sprite, Text, Texture } from "pixi.js";
 import { State } from "./classes/state";
+import { GameMenu } from "./classes/game-menu";
 import worldData from "../data/all-data.json";
+import goldCoinIconSrc from "./images/menu/gold-coin.png";
 import { detectCollision, getPerpendicularLineAtStart } from "./helpers/geom";
 import { colors, PLAYER_COLORS } from "./helpers/constants";
 import { Player, ServerToClientEvent, Unit } from "./types/shared";
@@ -20,6 +22,12 @@ export class GameState {
   private selectedStateId: string = "";
   private app: Application;
   private graphics: Graphics;
+  private uiLayer: Container;
+  private currencyHud: Container;
+  private currencyBg: Graphics;
+  private currencyIcon: Sprite;
+  private currencyText: Text;
+  private goldCount: number = 1250;
   private zoom: number = 1;
   private maxZoom: number = 15;
   private minZoom: number = 0.1;
@@ -29,6 +37,7 @@ export class GameState {
   private pointerDownPos: { x: number; y: number } = { x: 0, y: 0 };
   private mouseButtonDown: number = -1;
   private dragArrow: Graphics;
+  private gameMenu: GameMenu;
   private arrowStartPoint: { x: number; y: number } = { x: 0, y: 0 };
   private arrowDestinationStateId: string | null = null;
   private arrowStartStateId: string | null = null;
@@ -36,11 +45,40 @@ export class GameState {
   constructor(id: string, players: Player[]) {
     this.app = new Application();
     this.graphics = new Graphics();
+    this.uiLayer = new Container();
+    this.currencyHud = new Container();
+    this.currencyBg = new Graphics();
+    this.currencyIcon = new Sprite(Texture.WHITE);
+    this.currencyText = new Text({
+      text: this.goldCount.toLocaleString("en-US"),
+      anchor: { x: 1, y: 0.5 },
+      style: {
+        fontSize: 30,
+        fontWeight: "800",
+        fill: "#FFFFFF",
+        fontFamily: "Inter",
+        letterSpacing: 0.8,
+      },
+    });
     this.dragArrow = new Graphics();
+    this.gameMenu = new GameMenu();
     this.id = id;
     this.players = players;
     console.log("players", players);
     this.myPlayerId = channel.id || "";
+    this.goldCount = this.players.find((player) => player.id === this.myPlayerId)?.coin || 0;
+    this.gameMenu.setOnUpgrade(() => {
+      if (!this.selectedStateId) return;
+      const selectedState = this.getStateById(this.selectedStateId);
+      if (!selectedState) return;
+      sendEventToServer({
+        type: "upgrade-state",
+        data: {
+          stateId: selectedState.id,
+        },
+      });
+    });
+    this.setupCurrencyHud();
 
     void this.init();
   }
@@ -205,22 +243,15 @@ export class GameState {
     }, -1);
     this.graphics.setChildIndex(selectedState.graphics, maxStateChildIndex);
   }
-  private getStagePointFromCanvas(mouseX: number, mouseY: number) {
-    return {
-      x: (mouseX - this.app.stage.position.x) / this.zoom,
-      y: (mouseY - this.app.stage.position.y) / this.zoom,
-    };
-  }
   private getStateAtCanvasPoint(mouseX: number, mouseY: number) {
-    const stagePoint = this.getStagePointFromCanvas(mouseX, mouseY);
+    const stagePoint = { x: mouseX, y: mouseY };
     return this.states.find((state) => {
       const localPoint = state.graphics.toLocal(stagePoint, this.app.stage);
       return state.graphics.containsPoint(localPoint);
     });
   }
   private drawDragArrowToCanvasPoint(mouseX: number, mouseY: number) {
-    const stagePoint = this.getStagePointFromCanvas(mouseX, mouseY);
-    const endPoint = this.graphics.toLocal(stagePoint, this.app.stage);
+    const endPoint = this.graphics.toLocal({ x: mouseX, y: mouseY }, this.app.stage);
     const startPoint = this.arrowStartPoint;
     const dx = endPoint.x - startPoint.x;
     const dy = endPoint.y - startPoint.y;
@@ -393,9 +424,45 @@ export class GameState {
         align: "center",
       },
     });
+    const scale = GameState.LABEL_TARGET_HEIGHT / GameState.LABEL_FONT_SIZE;
+    const incomeLabel = new Text({
+      text: "+" + String(state.income),
+      anchor: 0.5,
+      style: {
+        fontSize: GameState.LABEL_FONT_SIZE / 1.25,
+        fontWeight: "600",
+        fill: "#DCFCE7",
+      },
+    });
+    incomeLabel.scale.set(scale * 0.92);
+
+    const incomeBadge = new Container();
+    const incomeBadgeBg = new Graphics();
+    const badgePaddingX = 0.55;
+    const badgePaddingY = 0.3;
+    const badgeWidth = incomeLabel.width + badgePaddingX * 2;
+    const badgeHeight = incomeLabel.height + badgePaddingY * 2;
+
+    incomeBadgeBg.roundRect(0, 0, badgeWidth, badgeHeight, badgeHeight / 2).fill({
+      color: "#14532D",
+      alpha: 0.95,
+    });
+    incomeBadgeBg.roundRect(0, 0, badgeWidth, badgeHeight, badgeHeight / 2).stroke({
+      color: "#86EFAC",
+      width: 0.1,
+      alpha: 0.9,
+    });
+    incomeLabel.position.set(badgeWidth / 2, badgeHeight / 2);
+    incomeBadge.addChild(incomeBadgeBg);
+    incomeBadge.addChild(incomeLabel);
+    incomeBadge.position.set(
+      GameState.MARKER_RADIUS + 0.55,
+      -GameState.MARKER_RADIUS - badgeHeight + 0.18,
+    );
+    marker.addChild(incomeBadge);
+
     state.setUnitLabelElement(label);
     state.setMarkerElement(marker);
-    const scale = GameState.LABEL_TARGET_HEIGHT / GameState.LABEL_FONT_SIZE;
     label.scale.set(scale);
     label.position.set(0, 0);
     marker.addChild(label);
@@ -407,6 +474,54 @@ export class GameState {
     for (const state of this.states) {
       this.drawStateLabel(state);
     }
+  }
+  private setupCurrencyHud() {
+    this.currencyHud.eventMode = "none";
+    this.currencyHud.addChild(this.currencyBg);
+
+    this.currencyIcon.anchor.set(0.5);
+    this.currencyIcon.width = 25;
+    this.currencyIcon.height = 25;
+    this.currencyIcon.tint = "#F59E0B";
+    this.currencyHud.addChild(this.currencyIcon);
+
+    this.currencyText.resolution = 2;
+    this.currencyHud.addChild(this.currencyText);
+    void this.loadCurrencyIcon();
+  }
+  private async loadCurrencyIcon() {
+    try {
+      const coinTexture = await Assets.load(goldCoinIconSrc);
+      this.currencyIcon.texture = coinTexture as Texture;
+      this.currencyIcon.tint = 0xffffff;
+    } catch (error) {
+      console.error("Failed to load currency icon", error);
+    }
+  }
+  private updateCurrencyHudLayout() {
+    const rightPadding = 0;
+    const topPadding = 0;
+    const hudHeight = 58;
+    const hudWidth = 160;
+    const leftPadding = 14;
+    const iconGap = 10;
+
+    this.currencyHud.position.set(this.app.screen.width - hudWidth - rightPadding, topPadding);
+    this.currencyBg.clear();
+    this.currencyBg.roundRect(0, 0, hudWidth, hudHeight, 0).fill({ color: "#0F172A", alpha: 0.92 });
+    this.currencyBg.roundRect(0, 0, hudWidth, hudHeight, 0).stroke({
+      color: "#334155",
+      width: 2,
+      alpha: 1,
+    });
+
+    this.currencyText.text = this.goldCount.toLocaleString("en-US");
+    this.currencyText.anchor.set(0, 0.5);
+    this.currencyIcon.position.set(leftPadding + this.currencyIcon.width / 2, hudHeight / 2);
+    this.currencyText.position.set(
+      this.currencyIcon.position.x + this.currencyIcon.width / 2 + iconGap,
+      hudHeight / 2,
+    );
   }
   private async renderApp() {
     const offset = { x: 0, y: 0 };
@@ -421,6 +536,13 @@ export class GameState {
       autoDensity: true,
       resolution: Math.min(window.devicePixelRatio || 1, 2),
     });
+    this.app.stage.addChild(this.uiLayer);
+    this.uiLayer.addChild(this.gameMenu.getContainer());
+    this.uiLayer.addChild(this.currencyHud);
+    this.gameMenu.setPosition(0, 0);
+    this.gameMenu.setViewportSize(this.app.screen.width, this.app.screen.height);
+    this.gameMenu.show();
+    this.updateCurrencyHudLayout();
 
     document.getElementById("pixi-container")!.appendChild(this.app.canvas);
 
@@ -436,11 +558,11 @@ export class GameState {
       this.zoom = Math.min(this.maxZoom, Math.max(this.minZoom, this.zoom));
       if (this.zoom === prevZoom) return;
 
-      const worldX = (mouseX - this.app.stage.position.x) / prevZoom;
-      const worldY = (mouseY - this.app.stage.position.y) / prevZoom;
+      const worldX = (mouseX - this.graphics.position.x) / prevZoom;
+      const worldY = (mouseY - this.graphics.position.y) / prevZoom;
 
-      this.app.stage.scale.set(this.zoom);
-      this.app.stage.position.set(mouseX - worldX * this.zoom, mouseY - worldY * this.zoom);
+      this.graphics.scale.set(this.zoom);
+      this.graphics.position.set(mouseX - worldX * this.zoom, mouseY - worldY * this.zoom);
     });
     const stopDragging = () => {
       this.isDragging = false;
@@ -459,6 +581,7 @@ export class GameState {
       const mouseY = event.clientY - rect.top;
 
       if (this.isArrowDragging && this.mouseButtonDown === 0) {
+        console.log("Moving arrow");
         const endState = this.getStateAtCanvasPoint(mouseX, mouseY);
         const previousEndState = this.arrowDestinationStateId
           ? this.getStateById(this.arrowDestinationStateId)
@@ -472,14 +595,20 @@ export class GameState {
         if (previousEndState) {
           this.drawStateLabel(previousEndState);
         }
-        this.drawDragArrowToCanvasPoint(mouseX, mouseY);
+        const hasPointerMoved =
+          Math.abs(mouseX - this.pointerDownPos.x) > 2 ||
+          Math.abs(mouseY - this.pointerDownPos.y) > 2;
+        console.log("hasPointerMoved", hasPointerMoved);
+        if (hasPointerMoved) {
+          this.drawDragArrowToCanvasPoint(mouseX, mouseY);
+        }
       }
       if (!this.isDragging) return;
       const deltaX = mouseX - this.dragStart.x;
       const deltaY = mouseY - this.dragStart.y;
-      this.app.stage.position.set(
-        this.app.stage.position.x + deltaX,
-        this.app.stage.position.y + deltaY,
+      this.graphics.position.set(
+        this.graphics.position.x + deltaX,
+        this.graphics.position.y + deltaY,
       );
       this.dragStart = { x: mouseX, y: mouseY };
     });
@@ -510,7 +639,7 @@ export class GameState {
         this.dragStart = { x: mouseX, y: mouseY };
         this.isArrowDragging = true;
         this.arrowStartStateId = clickedState.id;
-        this.drawDragArrowToCanvasPoint(mouseX, mouseY);
+        // this.drawDragArrowToCanvasPoint(mouseX, mouseY);
         // this.app.canvas.setPointerCapture(event.pointerId);
       }
       this.mouseButtonDown = event.button;
@@ -526,23 +655,30 @@ export class GameState {
         Math.abs(mouseX - this.pointerDownPos.x) < diffAllowed &&
         Math.abs(mouseY - this.pointerDownPos.y) < diffAllowed;
       if (mouseNotMovedAfterDown && this.mouseButtonDown === 0) {
-        const stagePoint = {
-          x: (mouseX - this.app.stage.position.x) / this.zoom,
-          y: (mouseY - this.app.stage.position.y) / this.zoom,
-        };
+        const stagePoint = { x: mouseX, y: mouseY };
         const newSelectedState = this.states.find((state) => {
           const localPoint = state.graphics.toLocal(stagePoint, this.app.stage);
           return state.graphics.containsPoint(localPoint);
         });
         if (newSelectedState) {
           const previousSelectedState = this.states.find((state) => state.isSelected);
+          const previousSelectedStateId = previousSelectedState?.id || "";
           if (previousSelectedState) {
             previousSelectedState.isSelected = false;
             previousSelectedState.deselect();
           }
-          this.selectedStateId = newSelectedState.id;
-          newSelectedState.select();
-          this.bringStateToFront(newSelectedState);
+          if (newSelectedState.id !== previousSelectedStateId) {
+            this.selectedStateId = newSelectedState.id;
+            newSelectedState.select();
+            this.bringStateToFront(newSelectedState);
+          }
+        } else {
+          const previousSelectedState = this.states.find((state) => state.isSelected);
+          if (previousSelectedState) {
+            previousSelectedState.isSelected = false;
+            previousSelectedState.deselect();
+          }
+          this.selectedStateId = "";
         }
       }
       if (this.mouseButtonDown === 0 && this.isArrowDragging) {
@@ -586,6 +722,10 @@ export class GameState {
     this.app.canvas.addEventListener("lostpointercapture", () => {
       stopDragging();
     });
+    window.addEventListener("resize", () => {
+      this.gameMenu.setViewportSize(this.app.screen.width, this.app.screen.height);
+      this.updateCurrencyHudLayout();
+    });
     window.addEventListener("blur", stopDragging);
   }
   private async init() {
@@ -621,6 +761,7 @@ export class GameState {
             frontendState.lastUnitIncreaseTimestamp = state.lastUnitIncreaseTimestamp;
             frontendState.unitIncreaseSpeed = state.unitIncreaseTime;
             frontendState.level = state.level;
+            frontendState.income = state.baseIncome;
             console.log("level", state.level);
           }
         }
@@ -656,6 +797,19 @@ export class GameState {
             this.drawStateLabel(state);
           }
         }
+      }
+      if (event.type === "update-gold-count") {
+        const goldCounts = event.data;
+        for (const goldCount of goldCounts) {
+          const player = this.players.find((player) => player.id === goldCount.playerId);
+          if (player) {
+            player.coin = goldCount.goldCount;
+          }
+          if (this.myPlayerId === goldCount.playerId) {
+            this.goldCount = goldCount.goldCount;
+          }
+        }
+        this.updateCurrencyHudLayout();
       }
     });
     //@ts-ignore

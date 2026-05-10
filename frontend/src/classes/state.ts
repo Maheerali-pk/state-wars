@@ -16,6 +16,7 @@ export class State {
   ownerId: string = "-1";
   unitCount: number = 0;
   level: number = 0;
+  income: number = 0;
   public unitIncreaseSpeed: number = 1000;
   public lastUnitIncreaseTimestamp: number = 0;
   unitLabelElement: Text;

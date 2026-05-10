@@ -10,6 +10,7 @@ import {
 import { BatchMovement } from "../frontend/src/types/shared";
 import { User } from "../frontend/src/types/shared";
 import { channel } from "../frontend/src/helpers/geckos-client";
+import { getRandomNumber } from "./utils";
 const mapData = worldData as FeatureCollection;
 
 interface PlayerColors {
@@ -44,7 +45,9 @@ const EXPECTED_FRONTEND_FRAME_MS = 16.67;
 const NETWORK_BUFFER_MS = 60;
 
 const LEVEL_TO_UNIT_INCREASE_INTERVAL_MS = [5000, 3000, 1500, 750];
+const GOLD_COUNT_PER_LEVEL = [250, 500, 1000, 2000];
 
+const INITIAL_GOLD_COUNT = 100;
 export class Game {
   public id: string;
   public states: BackendState[] = [];
@@ -57,6 +60,7 @@ export class Game {
       userId: user.id,
       name: user.name,
       color: PLAYER_COLORS[i],
+      goldCount: INITIAL_GOLD_COUNT,
     }));
     this.init();
   }
@@ -189,6 +193,7 @@ export class Game {
         unitIncreaseTime: LEVEL_TO_UNIT_INCREASE_INTERVAL_MS[level],
         lastUnitIncreaseTimestamp: Date.now(),
         centerPoint: feature.geometry ? this.getLabelPoint(feature.geometry) : { x: 0, y: 0 },
+        baseIncome: getRandomNumber(10, 50),
       };
     });
 
@@ -210,6 +215,39 @@ export class Game {
       data: this.states.map((state) => ({ stateId: state.id, unitCount: state.unitCount })),
     });
   }
+  public upgradeState(stateId: string) {
+    const state = this.states.find((state) => state.id === stateId);
+    const player = this.players.find((player) => player.userId === state?.ownerId);
+    if (!state) return;
+    if (!player) return;
+    player.goldCount -= GOLD_COUNT_PER_LEVEL[state.level];
+    state.level++;
+    state.unitIncreaseTime = LEVEL_TO_UNIT_INCREASE_INTERVAL_MS[state.level];
+    sendEventToRoom(this.id, {
+      type: "update-states",
+      data: [state],
+    });
+    this.sendGoldCountOfAllPlayersToClient();
+  }
+
+  public sendGoldCountOfAllPlayersToClient() {
+    sendEventToRoom(this.id, {
+      type: "update-gold-count",
+      data: this.players.map((player) => ({
+        playerId: player.userId,
+        goldCount: player.goldCount,
+      })),
+    });
+  }
+  public incrementGoldCount() {
+    this.players.forEach((player) => {
+      const myStates = this.states.filter((state) => state.ownerId === player.userId);
+      const goldCount = myStates.reduce((acc, state) => acc + state.baseIncome, 0);
+      player.goldCount += Math.round(goldCount / 12);
+      return { playerId: player.userId, goldCount: player.goldCount };
+    });
+    this.sendGoldCountOfAllPlayersToClient();
+  }
   public init() {
     const connections = this.players.map((player) =>
       io.connectionsManager.getConnection(player.userId),
@@ -224,6 +262,9 @@ export class Game {
             data.data.unitCount,
           );
         }
+        if (data.type === "upgrade-state") {
+          this.upgradeState(data.data.stateId);
+        }
       });
     });
 
@@ -235,10 +276,13 @@ export class Game {
           id: player.userId,
           name: player.name,
           colors: player.color,
+          coin: player.goldCount,
         })),
       },
     });
-
+    setInterval(() => {
+      this.incrementGoldCount();
+    }, 5000);
     setTimeout(() => {
       this.loadStates();
     }, 2000);
