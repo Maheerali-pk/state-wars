@@ -77,6 +77,7 @@ export interface BackendState {
   id: string;
   ownerId: string;
   unitCount: number;
+  level: number;
   unitIncreaseTime: number;
   lastUnitIncreaseTimestamp: number;
   centerPoint: { x: number; y: number };

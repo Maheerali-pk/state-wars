@@ -21,8 +21,8 @@ interface PlayerColors {
 
 const PLAYER_COLORS: PlayerColors[] = [
   { stateBackground: "#6EA8FE", unitMarker: "#2F5FB3", unit: "#FFFFFF", basic: "#4D8DFF" },
-  { stateBackground: "#F28B82", unitMarker: "#B9382F", unit: "#FFFFFF", basic: "#E85B52" },
-  { stateBackground: "#81C995", unitMarker: "#2E7D4F", unit: "#FFFFFF", basic: "#4CAF6A" },
+  // { stateBackground: "#F28B82", unitMarker: "#B9382F", unit: "#FFFFFF", basic: "#E85B52" },
+  // { stateBackground: "#81C995", unitMarker: "#2E7D4F", unit: "#FFFFFF", basic: "#4CAF6A" },
   { stateBackground: "#B39DDB", unitMarker: "#6B46C1", unit: "#FFFFFF", basic: "#8B5CF6" },
   { stateBackground: "#F6AD55", unitMarker: "#C05621", unit: "#FFFFFF", basic: "#ED8936" },
   { stateBackground: "#76E4F7", unitMarker: "#0E7490", unit: "#FFFFFF", basic: "#06B6D4" },
@@ -42,6 +42,9 @@ const FRONTEND_CHUNK_SIZE = 5;
 const FRONTEND_CHUNK_DELAY_MS = 150;
 const EXPECTED_FRONTEND_FRAME_MS = 16.67;
 const NETWORK_BUFFER_MS = 60;
+
+const LEVEL_TO_UNIT_INCREASE_INTERVAL_MS = [5000, 3000, 1500, 750];
+
 export class Game {
   public id: string;
   public states: BackendState[] = [];
@@ -82,10 +85,10 @@ export class Game {
           toState.unitCount += newCollisions;
         } else {
           toState.unitCount -= newCollisions;
-          if (toState.unitCount <= 0) {
+          if (toState.unitCount < 0) {
             toState.ownerId = batchMovement.ownerId;
             stateOwnerChanges.push(batchMovement.toStateId);
-            toState.unitCount = toState.unitCount * -1;
+            toState.unitCount = Math.abs(toState.unitCount);
           }
         }
 
@@ -176,11 +179,14 @@ export class Game {
   private loadStates() {
     this.states = mapData.features.map((feature, i) => {
       const ownerIndex = dummyInitialStates.find((item) => item.states.includes(i))?.ownerIndex;
+      const ownerId = this.players[ownerIndex ?? -1]?.userId || "-1";
+      const level = ownerId === "-1" ? 0 : 2;
       return {
         id: i.toString(),
+        level: level,
         ownerId: this.players[ownerIndex ?? -1]?.userId || "-1",
         unitCount: 10,
-        unitIncreaseTime: 3000,
+        unitIncreaseTime: LEVEL_TO_UNIT_INCREASE_INTERVAL_MS[level],
         lastUnitIncreaseTimestamp: Date.now(),
         centerPoint: feature.geometry ? this.getLabelPoint(feature.geometry) : { x: 0, y: 0 },
       };

@@ -314,6 +314,8 @@ export class GameState {
   }
   private static readonly MARKER_RADIUS = 2;
   private static readonly MARKER_GEOMETRY_RADIUS = 64;
+  private static readonly LEVEL_ARC_GEOMETRY_OFFSET = 10;
+  private static readonly LEVEL_ARC_GEOMETRY_STROKE = 20;
   private static readonly LABEL_FONT_SIZE = 32;
   private static readonly LABEL_TARGET_HEIGHT = 2;
 
@@ -326,8 +328,11 @@ export class GameState {
 
     const isDestination = this.arrowDestinationStateId === state.id;
     const circle = new Graphics();
+    const arc = new Graphics();
+    const arcBackground = new Graphics();
     const owner = this.players.find((player) => player.id === state.ownerId);
     const color = owner ? owner.colors.unitMarker : "#1F2937";
+    const level = state.level;
 
     if (isDestination) {
       const owner = this.players.find((player) => player.id === state.ownerId);
@@ -338,8 +343,43 @@ export class GameState {
       circle.circle(0, 0, GameState.MARKER_GEOMETRY_RADIUS * 3).fill({ color: color });
     }
     circle.circle(0, 0, GameState.MARKER_GEOMETRY_RADIUS).fill({ color: color });
+    arcBackground
+      .arc(
+        0,
+        0,
+        GameState.MARKER_GEOMETRY_RADIUS + GameState.LEVEL_ARC_GEOMETRY_OFFSET + 2,
+        0,
+        Math.PI * 2,
+      )
+      .stroke({ color: "#0B1220", alpha: 0.5, width: 20 });
+    let arcAngle = 0;
+    if (level === 0) {
+      arcAngle = 0;
+    }
+    if (level === 1) {
+      arcAngle = Math.PI / 2;
+    }
+    if (level === 2) {
+      arcAngle = Math.PI;
+    }
+    if (level === 3) {
+      arcAngle = Math.PI * 2;
+    }
+    const arcRadius = GameState.MARKER_GEOMETRY_RADIUS + GameState.LEVEL_ARC_GEOMETRY_OFFSET;
+    const arcStartAngle = -Math.PI / 2;
+    if (arcAngle > 0) {
+      arc.arc(0, 0, arcRadius + 2, arcStartAngle, arcStartAngle + arcAngle).stroke({
+        color: "#FFD54A",
+        width: GameState.LEVEL_ARC_GEOMETRY_STROKE - 7,
+        alpha: 1,
+      });
+    }
+
     const markerScale = GameState.MARKER_RADIUS / GameState.MARKER_GEOMETRY_RADIUS;
+    marker.addChild(arcBackground);
     circle.scale.set(markerScale);
+    arc.scale.set(markerScale);
+    arcBackground.scale.set(markerScale);
     marker.addChild(circle);
 
     const label = new Text({
@@ -359,6 +399,7 @@ export class GameState {
     label.scale.set(scale);
     label.position.set(0, 0);
     marker.addChild(label);
+    marker.addChild(arc);
 
     this.graphics.addChild(marker);
   }
@@ -579,6 +620,8 @@ export class GameState {
             frontendState.setOwnerId(state.ownerId, owner?.colors.stateBackground || "#D7D2CB");
             frontendState.lastUnitIncreaseTimestamp = state.lastUnitIncreaseTimestamp;
             frontendState.unitIncreaseSpeed = state.unitIncreaseTime;
+            frontendState.level = state.level;
+            console.log("level", state.level);
           }
         }
         this.drawStateLabels();
