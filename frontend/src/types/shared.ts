@@ -62,11 +62,16 @@ type UpdateUnitCountsEvent = {
   type: "update-unit-counts";
   data: { stateId: string; unitCount: number }[];
 };
+type UpdateStateOwnerChangesEvent = {
+  type: "update-state-owner-changes";
+  data: { id: string; ownerId: string }[];
+};
 export type ServerToClientEvent =
   | UpdateStatesEvent
   | UpdateBatchMovementsEvent
   | GameStartedEvent
-  | UpdateUnitCountsEvent;
+  | UpdateUnitCountsEvent
+  | UpdateStateOwnerChangesEvent;
 
 export interface BackendState {
   id: string;
@@ -84,6 +89,7 @@ export interface BatchMovement {
   amount: number;
   startTime: number;
   arrivalTime: number;
+  unitsCollided: number;
 }
 
 export interface BackendPlayer {

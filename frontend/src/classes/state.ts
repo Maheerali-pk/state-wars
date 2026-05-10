@@ -15,8 +15,8 @@ export class State {
   labelPoint: { x: number; y: number };
   ownerId: string = "-1";
   unitCount: number = 0;
-  unitIncreaseSpeed: number = 1000;
-  lastUnitIncreaseTimestamp: number = 0;
+  public unitIncreaseSpeed: number = 1000;
+  public lastUnitIncreaseTimestamp: number = 0;
   unitLabelElement: Text;
   markerElement: Container;
   geometry: Geometry;

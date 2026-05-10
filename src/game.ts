@@ -34,6 +34,14 @@ const dummyInitialStates = [
   { ownerIndex: 0, states: [66, 68, 69, 70] },
   { ownerIndex: 1, states: [67, 71] },
 ];
+
+// Keep backend timing model aligned with frontend movement logic.
+const FRONTEND_UNIT_STEP = 0.1;
+const FRONTEND_UNIT_MOVE_INTERVAL_MS = 10;
+const FRONTEND_CHUNK_SIZE = 5;
+const FRONTEND_CHUNK_DELAY_MS = 150;
+const EXPECTED_FRONTEND_FRAME_MS = 16.67;
+const NETWORK_BUFFER_MS = 60;
 export class Game {
   public id: string;
   public states: BackendState[] = [];
@@ -50,6 +58,83 @@ export class Game {
     this.init();
   }
 
+  private getFirstUnitTravelTimeMs(distance: number): number {
+    const effectiveStepMs = Math.max(FRONTEND_UNIT_MOVE_INTERVAL_MS, EXPECTED_FRONTEND_FRAME_MS);
+    return (distance / FRONTEND_UNIT_STEP) * effectiveStepMs + NETWORK_BUFFER_MS;
+  }
+
+  private updateUnitCollisions() {
+    const now = Date.now();
+    const stateOwnerChanges: string[] = [];
+    for (const batchMovement of this.batchMovements) {
+      const toState = this.states.find((state) => state.id === batchMovement.toStateId);
+      if (!toState) continue;
+      if (now < batchMovement.arrivalTime) continue;
+
+      // First chunk lands at arrivalTime, then every FRONTEND_CHUNK_DELAY_MS.
+      const elapsedSinceArrival = now - batchMovement.arrivalTime;
+      const landedChunks = 1 + Math.floor(elapsedSinceArrival / FRONTEND_CHUNK_DELAY_MS);
+      const shouldHaveCollided = Math.min(batchMovement.amount, landedChunks * FRONTEND_CHUNK_SIZE);
+      const newCollisions = shouldHaveCollided - batchMovement.unitsCollided;
+
+      if (newCollisions > 0) {
+        if (toState.ownerId === batchMovement.ownerId) {
+          toState.unitCount += newCollisions;
+        } else {
+          toState.unitCount -= newCollisions;
+          if (toState.unitCount <= 0) {
+            toState.ownerId = batchMovement.ownerId;
+            stateOwnerChanges.push(batchMovement.toStateId);
+            toState.unitCount = toState.unitCount * -1;
+          }
+        }
+
+        batchMovement.unitsCollided += newCollisions;
+      }
+    }
+    sendEventToRoom(this.id, {
+      type: "update-state-owner-changes",
+      data: this.states
+        .filter((state) => stateOwnerChanges.includes(state.id))
+        .map((state) => ({ id: state.id, ownerId: state.ownerId })),
+    });
+
+    this.batchMovements = this.batchMovements.filter(
+      (batchMovement) => batchMovement.unitsCollided <= batchMovement.amount,
+    );
+  }
+
+  private createBatchMovement(fromStateId: string, toStateId: string, amount: number) {
+    const fromState = this.states.find((state) => state.id === fromStateId);
+    const toState = this.states.find((state) => state.id === toStateId);
+    if (!fromState || !toState) return;
+    const distance =
+      Math.sqrt(
+        (fromState.centerPoint.x - toState.centerPoint.x) ** 2 +
+          (fromState.centerPoint.y - toState.centerPoint.y) ** 2,
+      ) - 2;
+    const timeTaken = this.getFirstUnitTravelTimeMs(distance);
+    console.log("First unit travel time (ms)", timeTaken);
+
+    const batchMovement: BatchMovement = {
+      id: crypto.randomUUID(),
+      unitsCollided: 0,
+      ownerId: fromState.ownerId,
+      fromStateId: fromStateId,
+      toStateId: toStateId,
+      amount: amount,
+      startTime: Date.now(),
+      arrivalTime: Date.now() + timeTaken,
+    };
+    this.batchMovements.push(batchMovement);
+    console.log("first arrival in seconds", timeTaken / 1000);
+    fromState.unitCount -= amount;
+    sendEventToRoom(this.id, {
+      type: "update-unit-counts",
+      data: [{ stateId: fromStateId, unitCount: fromState.unitCount }],
+    });
+    sendEventToRoom(this.id, { type: "update-batch-movements", data: [batchMovement] });
+  }
   private getPolygonCentroid(ring: number[][]): { x: number; y: number; area: number } {
     let a = 0;
     let cx = 0;
@@ -72,35 +157,6 @@ export class Game {
     if (Math.abs(a) < 1e-8) return { x: 0, y: 0, area: 0 };
     return { x: cx / (6 * a), y: cy / (6 * a), area: Math.abs(a) };
   }
-  private createBatchMovement(fromStateId: string, toStateId: string, amount: number) {
-    const fromState = this.states.find((state) => state.id === fromStateId);
-    const toState = this.states.find((state) => state.id === toStateId);
-    if (!fromState || !toState) return;
-    const distance = Math.hypot(
-      fromState.centerPoint.x - toState.centerPoint.x,
-      fromState.centerPoint.y - toState.centerPoint.y,
-    );
-    const timeTaken = distance / 0.1;
-
-    const batchMovement: BatchMovement = {
-      id: crypto.randomUUID(),
-      ownerId: fromState.ownerId,
-      fromStateId: fromStateId,
-      toStateId: toStateId,
-      amount: amount,
-      startTime: Date.now(),
-      arrivalTime: Date.now() + timeTaken,
-    };
-    fromState.unitCount -= amount;
-    sendEventToRoom(this.id, {
-      type: "update-unit-counts",
-      data: [{ stateId: fromStateId, unitCount: fromState.unitCount }],
-    });
-    sendEventToRoom(this.id, { type: "update-batch-movements", data: [batchMovement] });
-
-    // this.batchMovements.push(batchMovement);
-  }
-
   private getLabelPoint(geometry: Geometry): { x: number; y: number } {
     // Use only outer ring (index 0), ignore holes for label placement.
     const candidates: { x: number; y: number; area: number }[] = [];
@@ -124,7 +180,7 @@ export class Game {
         id: i.toString(),
         ownerId: this.players[ownerIndex ?? -1]?.userId || "-1",
         unitCount: 10,
-        unitIncreaseTime: 1000,
+        unitIncreaseTime: 3000,
         lastUnitIncreaseTimestamp: Date.now(),
         centerPoint: feature.geometry ? this.getLabelPoint(feature.geometry) : { x: 0, y: 0 },
       };
@@ -137,14 +193,15 @@ export class Game {
   }
 
   private updateUnitCountsOnBackend() {
-    sendEventToRoom(this.id, {
-      type: "update-unit-counts",
-      data: this.states.map((state) => ({ stateId: state.id, unitCount: state.unitCount })),
-    });
+    this.updateUnitCollisions();
     this.states.forEach((state) => {
       if (Date.now() - state.lastUnitIncreaseTimestamp < state.unitIncreaseTime) return;
       state.unitCount++;
       state.lastUnitIncreaseTimestamp = Date.now();
+    });
+    sendEventToRoom(this.id, {
+      type: "update-unit-counts",
+      data: this.states.map((state) => ({ stateId: state.id, unitCount: state.unitCount })),
     });
   }
   public init() {
@@ -182,6 +239,6 @@ export class Game {
 
     setInterval(() => {
       this.updateUnitCountsOnBackend();
-    }, 10);
+    }, 20);
   }
 }

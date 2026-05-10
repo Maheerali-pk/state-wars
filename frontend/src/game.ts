@@ -151,20 +151,20 @@ export class GameState {
             unit.destroyed = true;
 
             this.units = this.units.filter((u) => u !== unit);
-            if (destinationState.ownerId === attackingState?.ownerId) {
-              destinationState.setUnitCount(destinationState.unitCount + 1);
-            } else {
-              destinationState.setUnitCount(destinationState.unitCount - 1);
-            }
-            const attackingPlayer = unit.playerId
-              ? this.players.find((player) => player.id === unit.playerId)
-              : null;
-            if (destinationState.unitCount <= 0 && attackingPlayer) {
-              destinationState.setOwnerId(
-                attackingPlayer.id,
-                attackingPlayer.colors.stateBackground,
-              );
-            }
+            // if (destinationState.ownerId === attackingState?.ownerId) {
+            //   destinationState.setUnitCount(destinationState.unitCount + 1);
+            // } else {
+            //   destinationState.setUnitCount(destinationState.unitCount - 1);
+            // }
+            // const attackingPlayer = unit.playerId
+            //   ? this.players.find((player) => player.id === unit.playerId)
+            //   : null;
+            // if (destinationState.unitCount <= 0 && attackingPlayer) {
+            //   destinationState.setOwnerId(
+            //     attackingPlayer.id,
+            //     attackingPlayer.colors.stateBackground,
+            //   );
+            // }
           }
           if (destinationState) this.drawStateLabel(destinationState);
           if (attackingState) this.drawStateLabel(attackingState);
@@ -572,10 +572,13 @@ export class GameState {
         console.log("update-states", states);
         for (const state of states) {
           const owner = this.players.find((player) => player.id === state.ownerId);
-          this.states.find((s) => s.id === state.id)?.setUnitCount(state.unitCount);
-          this.states
-            .find((s) => s.id === state.id)
-            ?.setOwnerId(state.ownerId, owner?.colors.stateBackground || "#D7D2CB");
+          const frontendState = this.states.find((s) => s.id === state.id);
+          if (frontendState) {
+            frontendState.setUnitCount(state.unitCount);
+            frontendState.setOwnerId(state.ownerId, owner?.colors.stateBackground || "#D7D2CB");
+            frontendState.lastUnitIncreaseTimestamp = state.lastUnitIncreaseTimestamp;
+            frontendState.unitIncreaseSpeed = state.unitIncreaseTime;
+          }
         }
         this.drawStateLabels();
       }
@@ -596,14 +599,29 @@ export class GameState {
           }
         }
       }
+      if (event.type === "update-state-owner-changes") {
+        const stateOwnerChanges = event.data;
+        for (const stateOwnerChange of stateOwnerChanges) {
+          const state = this.getStateById(stateOwnerChange.id);
+          const ownerPlayer = this.players.find((player) => player.id === stateOwnerChange.ownerId);
+          if (state) {
+            state.setOwnerId(
+              stateOwnerChange.ownerId,
+              ownerPlayer?.colors.stateBackground || "#D7D2CB",
+            );
+            this.drawStateLabel(state);
+          }
+        }
+      }
     });
+    //@ts-ignore
 
     this.update();
   }
   private update() {
-    for (const state of this.states) {
-      state.increaseUnitCount();
-    }
+    // for (const state of this.states) {
+    //   state.increaseUnitCount();
+    // }
     this.updateUnits();
     requestAnimationFrame(this.update.bind(this));
   }
