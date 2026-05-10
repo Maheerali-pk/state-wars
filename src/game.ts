@@ -1,0 +1,187 @@
+import worldData from "./data/all-data.json";
+import { FeatureCollection, Geometry } from "geojson";
+import { io, sendEventToRoom } from "./geckos";
+import {
+  BackendPlayer,
+  BackendState,
+  ClientToServerEvent,
+  ServerToClientEvent,
+} from "../frontend/src/types/shared";
+import { BatchMovement } from "../frontend/src/types/shared";
+import { User } from "../frontend/src/types/shared";
+import { channel } from "../frontend/src/helpers/geckos-client";
+const mapData = worldData as FeatureCollection;
+
+interface PlayerColors {
+  stateBackground: string;
+  unitMarker: string;
+  unit: string;
+  basic: string;
+}
+
+const PLAYER_COLORS: PlayerColors[] = [
+  { stateBackground: "#6EA8FE", unitMarker: "#2F5FB3", unit: "#FFFFFF", basic: "#4D8DFF" },
+  { stateBackground: "#F28B82", unitMarker: "#B9382F", unit: "#FFFFFF", basic: "#E85B52" },
+  { stateBackground: "#81C995", unitMarker: "#2E7D4F", unit: "#FFFFFF", basic: "#4CAF6A" },
+  { stateBackground: "#B39DDB", unitMarker: "#6B46C1", unit: "#FFFFFF", basic: "#8B5CF6" },
+  { stateBackground: "#F6AD55", unitMarker: "#C05621", unit: "#FFFFFF", basic: "#ED8936" },
+  { stateBackground: "#76E4F7", unitMarker: "#0E7490", unit: "#FFFFFF", basic: "#06B6D4" },
+  { stateBackground: "#F9A8D4", unitMarker: "#BE185D", unit: "#FFFFFF", basic: "#EC4899" },
+  { stateBackground: "#FDE68A", unitMarker: "#B7791F", unit: "#1F2937", basic: "#FACC15" },
+];
+
+const dummyInitialStates = [
+  { ownerIndex: 0, states: [66, 68, 69, 70] },
+  { ownerIndex: 1, states: [67, 71] },
+];
+export class Game {
+  public id: string;
+  public states: BackendState[] = [];
+  public players: BackendPlayer[] = [];
+  private batchMovements: BatchMovement[] = [];
+
+  constructor(users: User[], id: string) {
+    this.id = id;
+    this.players = users.map((user, i) => ({
+      userId: user.id,
+      name: user.name,
+      color: PLAYER_COLORS[i],
+    }));
+    this.init();
+  }
+
+  private getPolygonCentroid(ring: number[][]): { x: number; y: number; area: number } {
+    let a = 0;
+    let cx = 0;
+    let cy = 0;
+
+    for (let i = 0; i < ring.length; i++) {
+      const [lon1, lat1] = ring[i];
+      const [lon2, lat2] = ring[(i + 1) % ring.length];
+      const x1 = (lon1 + 180) * 4;
+      const y1 = (90 - lat1) * 4;
+      const x2 = (lon2 + 180) * 4;
+      const y2 = (90 - lat2) * 4;
+      const cross = x1 * y2 - x2 * y1;
+      a += cross;
+      cx += (x1 + x2) * cross;
+      cy += (y1 + y2) * cross;
+    }
+
+    a *= 0.5;
+    if (Math.abs(a) < 1e-8) return { x: 0, y: 0, area: 0 };
+    return { x: cx / (6 * a), y: cy / (6 * a), area: Math.abs(a) };
+  }
+  private createBatchMovement(fromStateId: string, toStateId: string, amount: number) {
+    const fromState = this.states.find((state) => state.id === fromStateId);
+    const toState = this.states.find((state) => state.id === toStateId);
+    if (!fromState || !toState) return;
+    const distance = Math.hypot(
+      fromState.centerPoint.x - toState.centerPoint.x,
+      fromState.centerPoint.y - toState.centerPoint.y,
+    );
+    const timeTaken = distance / 0.1;
+
+    const batchMovement: BatchMovement = {
+      id: crypto.randomUUID(),
+      ownerId: fromState.ownerId,
+      fromStateId: fromStateId,
+      toStateId: toStateId,
+      amount: amount,
+      startTime: Date.now(),
+      arrivalTime: Date.now() + timeTaken,
+    };
+    fromState.unitCount -= amount;
+    sendEventToRoom(this.id, {
+      type: "update-unit-counts",
+      data: [{ stateId: fromStateId, unitCount: fromState.unitCount }],
+    });
+    sendEventToRoom(this.id, { type: "update-batch-movements", data: [batchMovement] });
+
+    // this.batchMovements.push(batchMovement);
+  }
+
+  private getLabelPoint(geometry: Geometry): { x: number; y: number } {
+    // Use only outer ring (index 0), ignore holes for label placement.
+    const candidates: { x: number; y: number; area: number }[] = [];
+
+    if (geometry.type === "Polygon") {
+      candidates.push(this.getPolygonCentroid(geometry.coordinates[0]));
+    } else if (geometry.type === "MultiPolygon") {
+      for (const poly of geometry.coordinates) {
+        candidates.push(this.getPolygonCentroid(poly[0]));
+      }
+    }
+
+    candidates.sort((a, b) => b.area - a.area);
+    return { x: candidates[0]?.x ?? 0, y: candidates[0]?.y ?? 0 };
+  }
+
+  private loadStates() {
+    this.states = mapData.features.map((feature, i) => {
+      const ownerIndex = dummyInitialStates.find((item) => item.states.includes(i))?.ownerIndex;
+      return {
+        id: i.toString(),
+        ownerId: this.players[ownerIndex ?? -1]?.userId || "-1",
+        unitCount: 10,
+        unitIncreaseTime: 1000,
+        lastUnitIncreaseTimestamp: Date.now(),
+        centerPoint: feature.geometry ? this.getLabelPoint(feature.geometry) : { x: 0, y: 0 },
+      };
+    });
+
+    sendEventToRoom(this.id, {
+      type: "update-states",
+      data: this.states,
+    });
+  }
+
+  private updateUnitCountsOnBackend() {
+    sendEventToRoom(this.id, {
+      type: "update-unit-counts",
+      data: this.states.map((state) => ({ stateId: state.id, unitCount: state.unitCount })),
+    });
+    this.states.forEach((state) => {
+      if (Date.now() - state.lastUnitIncreaseTimestamp < state.unitIncreaseTime) return;
+      state.unitCount++;
+      state.lastUnitIncreaseTimestamp = Date.now();
+    });
+  }
+  public init() {
+    const connections = this.players.map((player) =>
+      io.connectionsManager.getConnection(player.userId),
+    );
+    connections.forEach((connection) => {
+      //@ts-ignore
+      connection?.channel.on("client-to-server", (data: ClientToServerEvent) => {
+        if (data.type === "create-unit-movement") {
+          this.createBatchMovement(
+            data.data.attackerStateId,
+            data.data.defenderStateId,
+            data.data.unitCount,
+          );
+        }
+      });
+    });
+
+    sendEventToRoom(this.id, {
+      type: "game-started",
+      data: {
+        id: this.id,
+        players: this.players.map((player) => ({
+          id: player.userId,
+          name: player.name,
+          colors: player.color,
+        })),
+      },
+    });
+
+    setTimeout(() => {
+      this.loadStates();
+    }, 2000);
+
+    setInterval(() => {
+      this.updateUnitCountsOnBackend();
+    }, 10);
+  }
+}

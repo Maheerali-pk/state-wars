@@ -3,119 +3,20 @@ import { Application, Assets, Container, Graphics, Text } from "pixi.js";
 import { State } from "./classes/state";
 import worldData from "../data/all-data.json";
 import { detectCollision, getPerpendicularLineAtStart } from "./helpers/geom";
-import { colors } from "./helpers/constants";
+import { colors, PLAYER_COLORS } from "./helpers/constants";
+import { Player, ServerToClientEvent, Unit } from "./types/shared";
+import { channel, sendEventToServer } from "./helpers/geckos-client";
+import { collapseTextChangeRangesAcrossMultipleVersions } from "typescript";
 
-interface Player {
-  name: string;
-  id: string;
-  colors: PlayerColors;
-}
-export interface PlayerColors {
-  stateBackground: string;
-  unitMarker: string;
-  unit: string;
-  basic: string;
-}
-const PLAYER_COLORS: PlayerColors[] = [
-  // Blue
-  {
-    stateBackground: "#6EA8FE",
-    unitMarker: "#2F5FB3",
-    unit: "#FFFFFF",
-    basic: "#4D8DFF",
-  },
-
-  // Red
-  {
-    stateBackground: "#F28B82",
-    unitMarker: "#B9382F",
-    unit: "#FFFFFF",
-    basic: "#E85B52",
-  },
-
-  // Green
-  {
-    stateBackground: "#81C995",
-    unitMarker: "#2E7D4F",
-    unit: "#FFFFFF",
-    basic: "#4CAF6A",
-  },
-
-  // Purple
-  {
-    stateBackground: "#B39DDB",
-    unitMarker: "#6B46C1",
-    unit: "#FFFFFF",
-    basic: "#8B5CF6",
-  },
-
-  // Orange
-  {
-    stateBackground: "#F6AD55",
-    unitMarker: "#C05621",
-    unit: "#FFFFFF",
-    basic: "#ED8936",
-  },
-
-  // Cyan
-  {
-    stateBackground: "#76E4F7",
-    unitMarker: "#0E7490",
-    unit: "#FFFFFF",
-    basic: "#06B6D4",
-  },
-
-  // Pink
-  {
-    stateBackground: "#F9A8D4",
-    unitMarker: "#BE185D",
-    unit: "#FFFFFF",
-    basic: "#EC4899",
-  },
-
-  // Yellow
-  {
-    stateBackground: "#FDE68A",
-    unitMarker: "#B7791F",
-    unit: "#1F2937",
-    basic: "#FACC15",
-  },
-];
-
-interface MovingUnitDetails {
-  position: {
-    x: number;
-    y: number;
-  };
-  destination: {
-    x: number;
-    y: number;
-  };
-  speed: number;
-}
-
-interface Unit {
-  playerId: string;
-  movingDetails?: MovingUnitDetails;
-  stateId?: string;
-  graphics: Graphics;
-  lastMovedTimestamp: number;
-  firstRenderAt: number;
-  destinationStateId?: string;
-  destroyed: boolean;
-
-  destinationCircle: { x: number; y: number; radius: number };
-}
 const UNIT_STEP = 0.1;
 
 export class GameState {
+  public id: string;
   private states: State[] = [];
   private units: Unit[] = [];
-  private players: Player[] = [
-    { name: "Player 1", id: "1", colors: PLAYER_COLORS[0] },
-    { name: "Player 2", id: "2", colors: PLAYER_COLORS[1] },
-  ];
-  private myPlayerId: string = "1";
+  private players: Player[];
+
+  private myPlayerId: string;
   private selectedStateId: string = "";
   private app: Application;
   private graphics: Graphics;
@@ -132,15 +33,20 @@ export class GameState {
   private arrowDestinationStateId: string | null = null;
   private arrowStartStateId: string | null = null;
 
-  constructor() {
+  constructor(id: string, players: Player[]) {
     this.app = new Application();
     this.graphics = new Graphics();
     this.dragArrow = new Graphics();
+    this.id = id;
+    this.players = players;
+    console.log("players", players);
+    this.myPlayerId = channel.id || "";
 
     void this.init();
   }
 
-  private static readonly interBoldSrc = new URL("./fonts/Inter_18pt-Bold.ttf", import.meta.url).href;
+  private static readonly interBoldSrc = new URL("./fonts/Inter_18pt-Bold.ttf", import.meta.url)
+    .href;
   private allotStatesToPlayers() {
     const state1 = this.states.find((state) => state.id === "66");
     const state2 = this.states.find((state) => state.id === "67");
@@ -158,7 +64,11 @@ export class GameState {
     return this.states.find((state) => state.id === stateId);
   }
 
-  private createUnitMovement(attackerStateId: string, defenderStateId: string, unitCount: number) {
+  private startUnitMovementSimulation(
+    attackerStateId: string,
+    defenderStateId: string,
+    unitCount: number,
+  ) {
     const attackerState = this.states.find((state) => state.id === attackerStateId);
     const defenderState = this.states.find((state) => state.id === defenderStateId);
     if (!attackerState || !defenderState) return;
@@ -192,7 +102,8 @@ export class GameState {
             radius: 1.8,
           },
           firstRenderAt: startingDate + Math.floor(i / CHUNK_SIZE) * CHUNK_DELAY + chunkLocalDelay,
-          lastMovedTimestamp: startingDate + Math.floor(i / CHUNK_SIZE) * CHUNK_DELAY + chunkLocalDelay,
+          lastMovedTimestamp:
+            startingDate + Math.floor(i / CHUNK_SIZE) * CHUNK_DELAY + chunkLocalDelay,
           playerId: attackerState.ownerId,
           stateId: attackerStateId,
           graphics: new Graphics(),
@@ -206,7 +117,7 @@ export class GameState {
               x: perpendicularLineEnd.end.x,
               y: perpendicularLineEnd.end.y,
             },
-            speed: 1,
+            speed: 10,
           },
         };
         newUnit.graphics.circle(0, 0, 0.3).fill({ color: "rgba(0,0,0,1)" });
@@ -223,10 +134,17 @@ export class GameState {
 
       if (unit.movingDetails) {
         if (Date.now() - unit.lastMovedTimestamp < unit.movingDetails.speed) continue;
-        if (detectCollision({ x: unit.movingDetails.position.x, y: unit.movingDetails.position.y, radius: 0.3 }, unit.destinationCircle)) {
+        if (
+          detectCollision(
+            { x: unit.movingDetails.position.x, y: unit.movingDetails.position.y, radius: 0.3 },
+            unit.destinationCircle,
+          )
+        ) {
           unit.graphics.tint = "rgba(0,0,0,0)";
           unit.graphics.destroy();
-          const destinationState = unit.destinationStateId ? this.getStateById(unit.destinationStateId) : null;
+          const destinationState = unit.destinationStateId
+            ? this.getStateById(unit.destinationStateId)
+            : null;
           const attackingState = unit.stateId ? this.getStateById(unit.stateId) : null;
 
           if (destinationState && !unit.destroyed) {
@@ -238,9 +156,14 @@ export class GameState {
             } else {
               destinationState.setUnitCount(destinationState.unitCount - 1);
             }
-            const attackingPlayer = unit.playerId ? this.players.find((player) => player.id === unit.playerId) : null;
+            const attackingPlayer = unit.playerId
+              ? this.players.find((player) => player.id === unit.playerId)
+              : null;
             if (destinationState.unitCount <= 0 && attackingPlayer) {
-              destinationState.setOwnerId(attackingPlayer.id, attackingPlayer.colors.stateBackground);
+              destinationState.setOwnerId(
+                attackingPlayer.id,
+                attackingPlayer.colors.stateBackground,
+              );
             }
           }
           if (destinationState) this.drawStateLabel(destinationState);
@@ -311,7 +234,10 @@ export class GameState {
     const py = ux;
     const maxZoomToConsider = 7;
 
-    const zoomAwareScale = this.zoom < maxZoomToConsider ? Math.min(3.4, Math.max(0.8, 1.35 / Math.pow(this.zoom, 1.45))) : 0.5;
+    const zoomAwareScale =
+      this.zoom < maxZoomToConsider
+        ? Math.min(3.4, Math.max(0.8, 1.35 / Math.pow(this.zoom, 1.45)))
+        : 0.5;
 
     const shaftBaseWidth = 3.5 * zoomAwareScale;
     const shaftNeckWidth = 2.2 * zoomAwareScale;
@@ -359,7 +285,10 @@ export class GameState {
     const highlightInset = 0.35 * zoomAwareScale;
     const hlTail = pointAt(highlightInset * 1.5, shaftBaseWidth / 2 - highlightInset);
     const hlNeck = pointAt(bodyLength - highlightInset * 0.4, shaftNeckWidth / 2 - highlightInset);
-    const hlWing = pointAt(bodyLength + chevronDepth - highlightInset * 0.6, headWidth / 2 - highlightInset * 1.6);
+    const hlWing = pointAt(
+      bodyLength + chevronDepth - highlightInset * 0.6,
+      headWidth / 2 - highlightInset * 1.6,
+    );
     const hlTip = pointAt(length - highlightInset * 2.2, 0);
     this.dragArrow
       .moveTo(hlTail.x, hlTail.y)
@@ -401,7 +330,10 @@ export class GameState {
 
     if (isDestination) {
       const owner = this.players.find((player) => player.id === state.ownerId);
-      const color = owner?.id === this.myPlayerId ? colors.arrowDestinationState.own : colors.arrowDestinationState.other;
+      const color =
+        owner?.id === this.myPlayerId
+          ? colors.arrowDestinationState.own
+          : colors.arrowDestinationState.other;
       circle.circle(0, 0, GameState.MARKER_GEOMETRY_RADIUS * 3).fill({ color: color });
     }
     circle.circle(0, 0, GameState.MARKER_GEOMETRY_RADIUS).fill({ color: color });
@@ -460,8 +392,6 @@ export class GameState {
       // Scale zoom by delta for consistent behavior across mouse/trackpad.
       this.zoom *= Math.exp(-event.deltaY * 0.0015);
       this.zoom = Math.min(this.maxZoom, Math.max(this.minZoom, this.zoom));
-      console.log(this.zoom);
-
       if (this.zoom === prevZoom) return;
 
       const worldX = (mouseX - this.app.stage.position.x) / prevZoom;
@@ -488,7 +418,9 @@ export class GameState {
 
       if (this.isArrowDragging && this.mouseButtonDown === 0) {
         const endState = this.getStateAtCanvasPoint(mouseX, mouseY);
-        const previousEndState = this.arrowDestinationStateId ? this.getStateById(this.arrowDestinationStateId) : null;
+        const previousEndState = this.arrowDestinationStateId
+          ? this.getStateById(this.arrowDestinationStateId)
+          : null;
         if (endState?.id !== this.arrowStartStateId) {
           this.arrowDestinationStateId = endState?.id || null;
         }
@@ -503,7 +435,10 @@ export class GameState {
       if (!this.isDragging) return;
       const deltaX = mouseX - this.dragStart.x;
       const deltaY = mouseY - this.dragStart.y;
-      this.app.stage.position.set(this.app.stage.position.x + deltaX, this.app.stage.position.y + deltaY);
+      this.app.stage.position.set(
+        this.app.stage.position.x + deltaX,
+        this.app.stage.position.y + deltaY,
+      );
       this.dragStart = { x: mouseX, y: mouseY };
     });
     this.app.canvas.addEventListener("pointerdown", (event) => {
@@ -545,7 +480,9 @@ export class GameState {
       const rect = this.app.canvas.getBoundingClientRect();
       const mouseX = event.clientX - rect.left;
       const mouseY = event.clientY - rect.top;
-      const mouseNotMovedAfterDown = Math.abs(mouseX - this.pointerDownPos.x) < diffAllowed && Math.abs(mouseY - this.pointerDownPos.y) < diffAllowed;
+      const mouseNotMovedAfterDown =
+        Math.abs(mouseX - this.pointerDownPos.x) < diffAllowed &&
+        Math.abs(mouseY - this.pointerDownPos.y) < diffAllowed;
       if (mouseNotMovedAfterDown && this.mouseButtonDown === 0) {
         const stagePoint = {
           x: (mouseX - this.app.stage.position.x) / this.zoom,
@@ -568,14 +505,24 @@ export class GameState {
       }
       if (this.mouseButtonDown === 0 && this.isArrowDragging) {
         const actualEndState = this.getStateAtCanvasPoint(mouseX, mouseY);
-        const startState = this.arrowStartStateId ? this.getStateById(this.arrowStartStateId) : null;
+        const startState = this.arrowStartStateId
+          ? this.getStateById(this.arrowStartStateId)
+          : null;
 
         if (actualEndState && actualEndState.id !== this.arrowStartStateId && startState) {
-          this.createUnitMovement(startState.id, actualEndState.id, startState.unitCount);
-          startState.setUnitCount(0);
+          sendEventToServer({
+            type: "create-unit-movement",
+            data: {
+              attackerStateId: startState.id,
+              defenderStateId: actualEndState.id,
+              unitCount: startState.unitCount,
+            },
+          });
         }
 
-        const lastStoreEndState = this.arrowDestinationStateId ? this.getStateById(this.arrowDestinationStateId) : null;
+        const lastStoreEndState = this.arrowDestinationStateId
+          ? this.getStateById(this.arrowDestinationStateId)
+          : null;
 
         this.arrowDestinationStateId = null;
         this.arrowStartStateId = null;
@@ -606,6 +553,8 @@ export class GameState {
     this.drawStates();
     this.drawStateLabels();
     this.graphics.addChild(this.dragArrow);
+    //@ts-ignore
+    window.states2 = this.states.map((item) => ({ id: item.id, centerPoint: item.labelPoint }));
     await this.renderApp();
     // for (let i = 0; i < 10; i++) {
     //   let randomAttackerStateId = this.states[Math.floor(Math.random() * this.states.length)].id;
@@ -615,6 +564,39 @@ export class GameState {
     //   }
     //   this.createUnitMovement(randomAttackerStateId, randomDefenderStateId, 100);
     // }
+
+    //@ts-ignore
+    channel.on("server-to-client", (event: ServerToClientEvent) => {
+      if (event.type === "update-states") {
+        const states = event.data;
+        console.log("update-states", states);
+        for (const state of states) {
+          const owner = this.players.find((player) => player.id === state.ownerId);
+          this.states.find((s) => s.id === state.id)?.setUnitCount(state.unitCount);
+          this.states
+            .find((s) => s.id === state.id)
+            ?.setOwnerId(state.ownerId, owner?.colors.stateBackground || "#D7D2CB");
+        }
+        this.drawStateLabels();
+      }
+      if (event.type === "update-batch-movements") {
+        const batchMovement = event.data[0];
+        this.startUnitMovementSimulation(
+          batchMovement.fromStateId,
+          batchMovement.toStateId,
+          batchMovement.amount,
+        );
+      }
+      if (event.type === "update-unit-counts") {
+        const unitCounts = event.data;
+        for (const unitCount of unitCounts) {
+          const state = this.getStateById(unitCount.stateId);
+          if (state) {
+            state.setUnitCount(unitCount.unitCount);
+          }
+        }
+      }
+    });
 
     this.update();
   }

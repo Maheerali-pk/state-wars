@@ -1,26 +1,22 @@
-import { Application, Graphics } from "pixi.js";
-import worldData from "../data/all-data.json";
-import { FeatureCollection } from "geojson";
-import { State } from "./classes/state";
 import { GameState } from "./game";
-const mapData = worldData as FeatureCollection;
+import { channel, sendEventToServer } from "./helpers/geckos-client";
+import { ServerToClientEvent } from "./types/shared";
 
-let zoom = 1;
-let offset = { x: 0, y: 0 };
-let dragStart = { x: 0, y: 0 };
-let isDragging = false;
-const MIN_ZOOM = 0.4;
-const MAX_ZOOM = 10;
+channel.onConnect((error) => {
+  if (error) {
+    console.error(error.message);
+    return;
+  }
+  sendEventToServer({ type: "joined-queue" });
 
-const allPolygons: Graphics[] = [];
-const graphics = new Graphics();
-(async () => {
-  // Create a new application
-  const game = new GameState();
-  const app = new Application();
-
-  // Load the bunny texture
-})();
+  //@ts-ignore
+  channel.on("server-to-client", (event: ServerToClientEvent) => {
+    if (event.type === "game-started") {
+      console.log(`Game started with id ${event.data.id}`);
+      const game = new GameState(event.data.id, event.data.players);
+    }
+  });
+});
 
 document.addEventListener("contextmenu", (event) => {
   event.preventDefault();

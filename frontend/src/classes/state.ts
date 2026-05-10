@@ -39,7 +39,12 @@ export class State {
     const labelPoint = this.getLabelPoint(this.geometry as Geometry);
     this.labelPoint = { x: labelPoint.x, y: labelPoint.y };
   }
-  private drawPolygonToGraphics(coords: number[][][], graphics: Graphics, strokeColor: string, strokeWidth: number) {
+  private drawPolygonToGraphics(
+    coords: number[][][],
+    graphics: Graphics,
+    strokeColor: string,
+    strokeWidth: number,
+  ) {
     for (const ring of coords) {
       const points: number[] = [];
 
@@ -50,9 +55,14 @@ export class State {
         points.push(x, y);
       }
 
-      graphics.poly(points).fill({ color: this.fillColor }).stroke({ color: strokeColor, width: strokeWidth });
+      graphics
+        .poly(points)
+        .fill({ color: this.fillColor })
+        .stroke({ color: strokeColor, width: strokeWidth });
       if (this.isHovered) {
-        graphics.poly(points).fill({ color: State.HOVER_TINT_COLOR, alpha: State.HOVER_TINT_ALPHA });
+        graphics
+          .poly(points)
+          .fill({ color: State.HOVER_TINT_COLOR, alpha: State.HOVER_TINT_ALPHA });
       }
     }
     return graphics;
@@ -126,7 +136,7 @@ export class State {
     this.unitCount++;
     this.lastUnitIncreaseTimestamp = now;
     // this.unitLabelElement.text = String(this.unitCount);
-    this.unitLabelElement.text = String(this.unitCount);
+    this.unitLabelElement.text = this.unitCount.toString();
   }
   public setUnitCount(unitCount: number) {
     this.unitCount = unitCount;
