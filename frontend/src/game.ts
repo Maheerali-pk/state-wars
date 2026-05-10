@@ -78,20 +78,21 @@ export class GameState {
     const CHUNK_LOCAL_DELAY = 35;
     const startingDate = Date.now();
     for (let i = 0; i < unitCount; i += CHUNK_SIZE) {
-      for (let j = 0; j < CHUNK_SIZE; j++) {
+      const CURRENT_CHUNK_SIZE = Math.min(CHUNK_SIZE, unitCount - i);
+      for (let j = 0; j < CURRENT_CHUNK_SIZE; j++) {
         const index = i + j;
         const perpendicularLineStart = getPerpendicularLineAtStart(
           { x: attackerState.labelPoint.x, y: attackerState.labelPoint.y },
           { x: defenderState.labelPoint.x, y: defenderState.labelPoint.y },
-          (j - Math.floor(CHUNK_SIZE / 2)) * CHUNK_LOCAL_GAP,
+          (j - Math.floor(CURRENT_CHUNK_SIZE / 2)) * CHUNK_LOCAL_GAP,
         );
 
         const perpendicularLineEnd = getPerpendicularLineAtStart(
           { x: defenderState.labelPoint.x, y: defenderState.labelPoint.y },
           { x: attackerState.labelPoint.x, y: attackerState.labelPoint.y },
-          -(j - Math.floor(CHUNK_SIZE / 2)) * CHUNK_LOCAL_GAP,
+          -(j - Math.floor(CURRENT_CHUNK_SIZE / 2)) * CHUNK_LOCAL_GAP,
         );
-        const indexDifferenceFromMid = Math.abs(j - Math.floor(CHUNK_SIZE / 2));
+        const indexDifferenceFromMid = Math.abs(j - Math.floor(CURRENT_CHUNK_SIZE / 2));
         const chunkLocalDelay = indexDifferenceFromMid * CHUNK_LOCAL_DELAY;
         const newUnit: Unit = {
           destroyed: false,
