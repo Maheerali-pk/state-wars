@@ -74,6 +74,7 @@ export class Game {
   private updateUnitCollisions() {
     const now = Date.now();
     const stateOwnerChanges: string[] = [];
+    const unitChanges: { stateId: string; unitCount: number }[] = [];
     for (const batchMovement of this.batchMovements) {
       const toState = this.states.find((state) => state.id === batchMovement.toStateId);
       if (!toState) continue;
@@ -98,15 +99,20 @@ export class Game {
         }
 
         batchMovement.unitsCollided += newCollisions;
+        unitChanges.push({ stateId: batchMovement.toStateId, unitCount: toState.unitCount });
       }
     }
+
     sendEventToRoom(this.id, {
       type: "update-state-owner-changes",
       data: this.states
         .filter((state) => stateOwnerChanges.includes(state.id))
         .map((state) => ({ id: state.id, ownerId: state.ownerId })),
     });
-
+    sendEventToRoom(this.id, {
+      type: "update-unit-counts",
+      data: unitChanges,
+    });
     this.batchMovements = this.batchMovements.filter(
       (batchMovement) => batchMovement.unitsCollided <= batchMovement.amount,
     );
@@ -217,6 +223,16 @@ export class Game {
       state.unitCount++;
       state.lastUnitIncreaseTimestamp = Date.now();
     });
+  }
+  private sendOccupiedStatesUnitCountsToClient() {
+    sendEventToRoom(this.id, {
+      type: "update-unit-counts",
+      data: this.states
+        .filter((state) => state.ownerId !== "-1")
+        .map((state) => ({ stateId: state.id, unitCount: state.unitCount })),
+    });
+  }
+  private sendAllStatesUnitCountsToClient() {
     sendEventToRoom(this.id, {
       type: "update-unit-counts",
       data: this.states.map((state) => ({ stateId: state.id, unitCount: state.unitCount })),
@@ -255,6 +271,7 @@ export class Game {
     });
     this.sendGoldCountOfAllPlayersToClient();
   }
+
   public init() {
     const connections = this.players.map((player) =>
       io.connectionsManager.getConnection(player.userId),
@@ -296,6 +313,12 @@ export class Game {
 
     setInterval(() => {
       this.updateUnitCountsOnBackend();
-    }, 1000);
+    }, 20);
+    setInterval(() => {
+      this.sendAllStatesUnitCountsToClient();
+    }, 2500);
+    setInterval(() => {
+      this.sendOccupiedStatesUnitCountsToClient();
+    }, 500);
   }
 }
