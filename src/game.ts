@@ -114,16 +114,19 @@ export class Game {
       }
     }
 
-    sendEventToRoom(this.id, {
-      type: "update-state-owner-changes",
-      data: this.states
-        .filter((state) => stateOwnerChanges.includes(state.id))
-        .map((state) => ({ id: state.id, ownerId: state.ownerId })),
-    });
+    const validStateOwnerChanges = this.states
+      .filter((state) => stateOwnerChanges.includes(state.id))
+      .map((state) => ({ id: state.id, ownerId: state.ownerId }));
 
     this.batchMovements = this.batchMovements.filter(
       (batchMovement) => batchMovement.unitsCollided <= batchMovement.amount,
     );
+    if (validStateOwnerChanges.length > 0) {
+      sendEventToRoom(this.id, {
+        type: "update-state-owner-changes",
+        data: validStateOwnerChanges,
+      });
+    }
     if (unitChanges.length > 0) {
       sendEventToRoom(this.id, {
         type: "update-unit-counts",
