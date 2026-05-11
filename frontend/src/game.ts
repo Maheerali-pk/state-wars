@@ -956,13 +956,16 @@ export class GameState {
     //@ts-ignore
 
     this.update();
+    setInterval(() => {
+      this.update.bind(this)();
+    }, 16.67);
   }
+
   private update() {
     // for (const state of this.states) {
     //   state.increaseUnitCount();
     // }
     this.updateUnits();
     this.updateUnitDestroyEffects();
-    requestAnimationFrame(this.update.bind(this));
   }
 }
