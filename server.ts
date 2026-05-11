@@ -1,4 +1,5 @@
-import geckos from "@geckos.io/server";
+import express from "express";
+import http from "http";
 import worldData from "./src/data/all-data.json";
 import { FeatureCollection } from "geojson";
 import { usersManager } from "./src/player";
@@ -7,7 +8,32 @@ import { io, sendEventToRoom } from "./src/geckos";
 import { ClientToServerEvent } from "./frontend/src/types/shared";
 import { gamesManager } from "./src/gamesManager";
 
-io.listen(5001); // default port is 9208
+const app = express();
+const port = Number(process.env.PORT || 5001);
+
+app.get("/", (_req, res) => {
+  res.json({
+    status: "ok",
+    message: "StateIO API + geckos server is running",
+  });
+});
+
+app.get("/health/geckos", (_req, res) => {
+  const activeConnections = io.connectionsManager.getConnections().size;
+  res.json({
+    status: "ok",
+    geckos: {
+      activeConnections,
+    },
+  });
+});
+
+const server = http.createServer(app);
+io.addServer(server);
+
+server.listen(port, () => {
+  console.log(`HTTP + geckos listening on http://localhost:${port}`);
+});
 
 io.onConnection((channel) => {
   channel.onDisconnect(() => {
