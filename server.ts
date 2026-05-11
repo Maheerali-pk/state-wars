@@ -1,24 +1,27 @@
 import express from "express";
 import http from "http";
-import worldData from "./src/data/all-data.json";
-import { FeatureCollection } from "geojson";
+import fs from "fs";
+import path from "path";
 import { usersManager } from "./src/player";
 import { Game } from "./src/game";
-import { io, sendEventToRoom } from "./src/geckos";
+import { io } from "./src/geckos";
 import { ClientToServerEvent } from "./frontend/src/types/shared";
 import { gamesManager } from "./src/gamesManager";
 
 const app = express();
 const port = Number(process.env.PORT || 5001);
+const frontendDistPath = path.join(__dirname, "frontend", "dist");
+const frontendIndexPath = path.join(frontendDistPath, "index.html");
+const hasFrontendBuild = fs.existsSync(frontendIndexPath);
 
-app.get("/", (_req, res) => {
+app.get("/api", (_req, res) => {
   res.json({
     status: "ok",
     message: "StateIO API + geckos server is running",
   });
 });
 
-app.get("/health/geckos", (_req, res) => {
+app.get("/api/health/geckos", (_req, res) => {
   const activeConnections = io.connectionsManager.getConnections().size;
   res.json({
     status: "ok",
@@ -27,6 +30,20 @@ app.get("/health/geckos", (_req, res) => {
     },
   });
 });
+
+if (hasFrontendBuild) {
+  app.use(express.static(frontendDistPath));
+  app.get(/^\/(?!api\/).*/, (_req, res) => {
+    res.sendFile(frontendIndexPath);
+  });
+} else {
+  app.get("/", (_req, res) => {
+    res.status(503).json({
+      status: "error",
+      message: "Frontend build not found. Run `npm run build:frontend` first.",
+    });
+  });
+}
 
 const server = http.createServer(app);
 io.addServer(server);

@@ -8,8 +8,10 @@
   "main": "server.ts",
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
+    "build:frontend": "npm --prefix frontend run build:prod",
     "dev": "nodemon --watch src --watch server.ts --ext ts,json --exec \"ts-node\" server.ts",
     "start": "ts-node server.ts",
+    "start:prod": "npm run build:frontend && npm start",
     "dev:inspect": "nodemon --watch src --watch server.ts --ext ts,json --exec \"node --inspect=9229 -r ts-node/register\" server.ts",
     "dev:inspect:brk": "nodemon --watch src --watch server.ts --ext ts,json --exec \"node --inspect-brk=9229 -r ts-node/register\" server.ts"
   },
