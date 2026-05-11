@@ -47,6 +47,7 @@ const GOLD_COUNT_PER_LEVEL = [250, 500, 1000];
 
 const INITIAL_GOLD_COUNT = 100;
 const BATCH_MOVEMENT_COST = 25;
+const UNIT_COUNT_WHEN_NEUTRAL_GROWTH_RATE_DROP = 25;
 
 const TOTAL_PICKS = 1;
 export class Game {
@@ -91,6 +92,7 @@ export class Game {
       const landedChunks = 1 + Math.floor(elapsedSinceArrival / FRONTEND_CHUNK_DELAY_MS);
       const shouldHaveCollided = Math.min(batchMovement.amount, landedChunks * FRONTEND_CHUNK_SIZE);
       const newCollisions = shouldHaveCollided - batchMovement.unitsCollided;
+      const isTargetNeutral = toState.ownerId === "-1";
 
       if (newCollisions > 0) {
         if (toState.ownerId === batchMovement.ownerId) {
@@ -101,6 +103,9 @@ export class Game {
             toState.ownerId = batchMovement.ownerId;
             stateOwnerChanges.push(batchMovement.toStateId);
             toState.unitCount = Math.abs(toState.unitCount);
+            if (isTargetNeutral) {
+              toState.unitIncreaseTime = LEVEL_TO_UNIT_INCREASE_INTERVAL_MS[0];
+            }
           }
         }
 
@@ -229,6 +234,9 @@ export class Game {
     this.states.forEach((state) => {
       if (Date.now() - state.lastUnitIncreaseTimestamp < state.unitIncreaseTime) return;
       state.unitCount++;
+      if (state.ownerId === "-1" && state.unitCount >= UNIT_COUNT_WHEN_NEUTRAL_GROWTH_RATE_DROP) {
+        state.unitIncreaseTime = LEVEL_TO_UNIT_INCREASE_INTERVAL_MS[0] * 2;
+      }
       state.lastUnitIncreaseTimestamp = Date.now();
     });
   }
