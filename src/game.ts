@@ -120,10 +120,12 @@ export class Game {
         .filter((state) => stateOwnerChanges.includes(state.id))
         .map((state) => ({ id: state.id, ownerId: state.ownerId })),
     });
-    sendEventToRoom(this.id, {
-      type: "update-unit-counts",
-      data: unitChanges,
-    });
+    if (unitChanges.length > 0) {
+      sendEventToRoom(this.id, {
+        type: "update-unit-counts",
+        data: unitChanges,
+      });
+    }
     this.batchMovements = this.batchMovements.filter(
       (batchMovement) => batchMovement.unitsCollided <= batchMovement.amount,
     );
