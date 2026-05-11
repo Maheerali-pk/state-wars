@@ -37,6 +37,11 @@ export interface Unit {
 
   destinationCircle: { x: number; y: number; radius: number };
 }
+export interface PickingStateDetails {
+  currentPlayerId: string;
+  picksRemaining: number;
+  isActive: boolean;
+}
 
 type JoinedQueueEvent = {
   type: "joined-queue";
@@ -49,7 +54,15 @@ type UpgradeStateEvent = {
   type: "upgrade-state";
   data: { stateId: string };
 };
-export type ClientToServerEvent = JoinedQueueEvent | CreateUnitMovementEvent | UpgradeStateEvent;
+type PickStateEvent = {
+  type: "pick-state";
+  data: { stateId: string; playerId: string };
+};
+export type ClientToServerEvent =
+  | JoinedQueueEvent
+  | CreateUnitMovementEvent
+  | UpgradeStateEvent
+  | PickStateEvent;
 
 type UpdateStatesEvent = {
   type: "update-states";
@@ -75,13 +88,18 @@ type UpdateGoldCount = {
   type: "update-gold-count";
   data: { playerId: string; goldCount: number }[];
 };
+type SendPickingStateDetailsEvent = {
+  type: "send-picking-state-details";
+  data: PickingStateDetails;
+};
 export type ServerToClientEvent =
   | UpdateStatesEvent
   | UpdateBatchMovementsEvent
   | GameStartedEvent
   | UpdateUnitCountsEvent
   | UpdateStateOwnerChangesEvent
-  | UpdateGoldCount;
+  | UpdateGoldCount
+  | SendPickingStateDetailsEvent;
 
 export interface BackendState {
   id: string;

@@ -1,18 +1,19 @@
 import { FeatureCollection } from "geojson";
-import { Application, Assets, Container, Graphics, Sprite, Text, Texture } from "pixi.js";
+import { Application, Assets, Batch, Container, Graphics, Sprite, Text, Texture } from "pixi.js";
 import { State } from "./classes/state";
 import { GameMenu } from "./classes/game-menu";
 import worldData from "../data/all-data.json";
 import goldCoinIconSrc from "./images/menu/gold-coin.png";
 import { detectCollision, getPerpendicularLineAtStart } from "./helpers/geom";
 import { colors } from "./helpers/constants";
-import { Player, ServerToClientEvent, Unit } from "./types/shared";
+import { PickingStateDetails, Player, ServerToClientEvent, Unit } from "./types/shared";
 import { channel, sendEventToServer } from "./helpers/geckos-client";
 import { collapseTextChangeRangesAcrossMultipleVersions } from "typescript";
 
 const UNIT_STEP = 0.1;
 const UPGRADE_PRICES = [250, 500, 1000, 2000];
 
+const BATCH_MOVEMENT_COST = 25;
 export class GameState {
   public id: string;
   private states: State[] = [];
@@ -33,6 +34,9 @@ export class GameState {
   private currencyBg: Graphics;
   private currencyIcon: Sprite;
   private currencyText: Text;
+  private pickingTurnHud: Container;
+  private pickingTurnBg: Graphics;
+  private pickingTurnText: Text;
   private goldCount: number = 1250;
   private zoom: number = 1;
   private maxZoom: number = 15;
@@ -47,7 +51,7 @@ export class GameState {
   private arrowStartPoint: { x: number; y: number } = { x: 0, y: 0 };
   private arrowDestinationStateId: string | null = null;
   private arrowStartStateId: string | null = null;
-
+  private pickingStateDetails?: PickingStateDetails;
   constructor(id: string, players: Player[]) {
     this.app = new Application();
     this.graphics = new Graphics();
@@ -64,6 +68,19 @@ export class GameState {
         fill: "#FFFFFF",
         fontFamily: "Inter",
         letterSpacing: 0.8,
+      },
+    });
+    this.pickingTurnHud = new Container();
+    this.pickingTurnBg = new Graphics();
+    this.pickingTurnText = new Text({
+      text: "",
+      anchor: { x: 0.5, y: 0.5 },
+      style: {
+        fontSize: 20,
+        fontWeight: "700",
+        fill: "#FFFFFF",
+        fontFamily: "Inter",
+        align: "center",
       },
     });
     this.dragArrow = new Graphics();
@@ -88,6 +105,7 @@ export class GameState {
       });
     });
     this.setupCurrencyHud();
+    this.setupPickingTurnHud();
     this.updateUpgradeMenuInfo();
 
     void this.init();
@@ -95,19 +113,7 @@ export class GameState {
 
   private static readonly interBoldSrc = new URL("./fonts/Inter_18pt-Bold.ttf", import.meta.url)
     .href;
-  private allotStatesToPlayers() {
-    const state1 = this.states.find((state) => state.id === "66");
-    const state2 = this.states.find((state) => state.id === "67");
-    const state3 = this.states.find((state) => state.id === "68");
-    const state4 = this.states.find((state) => state.id === "69");
-    const state5 = this.states.find((state) => state.id === "70");
-    if (!state1 || !state2 || !state3 || !state4 || !state5) return;
-    state1.setOwnerId("1", this.players[0].colors.stateBackground);
-    state3.setOwnerId("1", this.players[0].colors.stateBackground);
-    state4.setOwnerId("1", this.players[0].colors.stateBackground);
-    state5.setOwnerId("1", this.players[0].colors.stateBackground);
-    state2.setOwnerId("2", this.players[1].colors.stateBackground);
-  }
+  private allotStatesToPlayers() {}
   private getStateById(stateId: string): State | undefined {
     return this.states.find((state) => state.id === stateId);
   }
@@ -289,10 +295,12 @@ export class GameState {
     });
   }
   public loadMapData(mapData: FeatureCollection) {
-    mapData.features.forEach((feature, index) => {
-      const newState = new State(index.toString() || "", feature.properties?.name || "", feature);
-      this.states.push(newState);
-    });
+    mapData.features
+      .filter((feature) => feature.properties?.["CONTINENT"] === "Africa")
+      .forEach((feature, index) => {
+        const newState = new State(index.toString() || "", feature.properties?.name || "", feature);
+        this.states.push(newState);
+      });
   }
   private bringStateToFront(selectedState: State) {
     const maxStateChildIndex = this.states.reduce((maxIndex, state) => {
@@ -546,6 +554,12 @@ export class GameState {
     this.currencyHud.addChild(this.currencyText);
     void this.loadCurrencyIcon();
   }
+  private setupPickingTurnHud() {
+    this.pickingTurnHud.eventMode = "none";
+    this.pickingTurnHud.visible = false;
+    this.pickingTurnHud.addChild(this.pickingTurnBg);
+    this.pickingTurnHud.addChild(this.pickingTurnText);
+  }
   private async loadCurrencyIcon() {
     try {
       const coinTexture = await Assets.load(goldCoinIconSrc);
@@ -580,6 +594,50 @@ export class GameState {
       hudHeight / 2,
     );
   }
+  private updatePickingTurnHudLayout() {
+    const details = this.pickingStateDetails;
+    if (!details?.isActive) {
+      this.pickingTurnHud.visible = false;
+      return;
+    }
+
+    const isMyTurn = details.currentPlayerId === this.myPlayerId;
+    const activePlayer = this.players.find((player) => player.id === details.currentPlayerId);
+    this.pickingTurnText.text = isMyTurn
+      ? `It is your turn to pick the state. Remaining picks: ${details.picksRemaining}`
+      : `${activePlayer?.name || "Other player"}'s turn to pick state... Remaining picks: ${details.picksRemaining}`;
+
+    const horizontalPadding = 16;
+    const verticalPadding = 10;
+    const hudWidth = this.pickingTurnText.width + horizontalPadding * 2;
+    const hudHeight = this.pickingTurnText.height + verticalPadding * 2;
+    const topPadding = 10;
+
+    this.pickingTurnHud.visible = true;
+    this.pickingTurnHud.position.set((this.app.screen.width - hudWidth) / 2, topPadding);
+
+    this.pickingTurnBg.clear();
+    this.pickingTurnBg.roundRect(0, 0, hudWidth, hudHeight, 10).fill({
+      color: "#0B1220",
+      alpha: 0.9,
+    });
+    this.pickingTurnBg.roundRect(0, 0, hudWidth, hudHeight, 10).stroke({
+      color: isMyTurn ? "#22C55E" : "#64748B",
+      width: 2,
+      alpha: 1,
+    });
+
+    this.pickingTurnText.position.set(hudWidth / 2, hudHeight / 2);
+  }
+  private pickState(stateId: string) {
+    sendEventToServer({
+      type: "pick-state",
+      data: {
+        stateId: stateId,
+        playerId: this.myPlayerId,
+      },
+    });
+  }
   private async renderApp() {
     const offset = { x: 0, y: 0 };
     offset.x = (window.innerWidth - this.graphics.width) / 2;
@@ -596,10 +654,12 @@ export class GameState {
     this.app.stage.addChild(this.uiLayer);
     this.uiLayer.addChild(this.gameMenu.getContainer());
     this.uiLayer.addChild(this.currencyHud);
+    this.uiLayer.addChild(this.pickingTurnHud);
     this.gameMenu.setPosition(0, 0);
     this.gameMenu.setViewportSize(this.app.screen.width, this.app.screen.height);
     this.gameMenu.show();
     this.updateCurrencyHudLayout();
+    this.updatePickingTurnHudLayout();
 
     document.getElementById("pixi-container")!.appendChild(this.app.canvas);
 
@@ -688,14 +748,14 @@ export class GameState {
         const mouseY = event.clientY - rect.top;
         const clickedState = this.getStateAtCanvasPoint(mouseX, mouseY);
         if (!clickedState) return;
-        if (clickedState.ownerId !== this.myPlayerId) {
-          return;
+        if (clickedState.ownerId === this.myPlayerId) {
+          this.arrowStartPoint = { x: clickedState.labelPoint.x, y: clickedState.labelPoint.y };
+          this.dragStart = { x: mouseX, y: mouseY };
+          this.isArrowDragging = true;
+          this.arrowStartStateId = clickedState.id;
         }
-        this.arrowStartPoint = { x: clickedState.labelPoint.x, y: clickedState.labelPoint.y };
         this.pointerDownPos = { x: mouseX, y: mouseY };
-        this.dragStart = { x: mouseX, y: mouseY };
-        this.isArrowDragging = true;
-        this.arrowStartStateId = clickedState.id;
+
         // this.drawDragArrowToCanvasPoint(mouseX, mouseY);
         // this.app.canvas.setPointerCapture(event.pointerId);
       }
@@ -711,7 +771,18 @@ export class GameState {
       const mouseNotMovedAfterDown =
         Math.abs(mouseX - this.pointerDownPos.x) < diffAllowed &&
         Math.abs(mouseY - this.pointerDownPos.y) < diffAllowed;
-      if (mouseNotMovedAfterDown && this.mouseButtonDown === 0) {
+      console.log(
+        "mouseNotMovedAfterDown",
+        mouseNotMovedAfterDown,
+        this.mouseButtonDown,
+        this.pickingStateDetails?.isActive,
+      );
+      const pickingStates = this.pickingStateDetails?.isActive;
+      if (mouseNotMovedAfterDown && this.mouseButtonDown === 0 && pickingStates) {
+        const clickedState = this.getStateAtCanvasPoint(mouseX, mouseY);
+        this.pickState(clickedState?.id || "");
+      }
+      if (mouseNotMovedAfterDown && this.mouseButtonDown === 0 && !pickingStates) {
         const stagePoint = { x: mouseX, y: mouseY };
         const newSelectedState = this.states.find((state) => {
           const localPoint = state.graphics.toLocal(stagePoint, this.app.stage);
@@ -740,21 +811,23 @@ export class GameState {
           this.updateUpgradeMenuInfo();
         }
       }
-      if (this.mouseButtonDown === 0 && this.isArrowDragging) {
+      if (this.mouseButtonDown === 0 && this.isArrowDragging && !pickingStates) {
         const actualEndState = this.getStateAtCanvasPoint(mouseX, mouseY);
         const startState = this.arrowStartStateId
           ? this.getStateById(this.arrowStartStateId)
           : null;
 
         if (actualEndState && actualEndState.id !== this.arrowStartStateId && startState) {
-          sendEventToServer({
-            type: "create-unit-movement",
-            data: {
-              attackerStateId: startState.id,
-              defenderStateId: actualEndState.id,
-              unitCount: startState.unitCount,
-            },
-          });
+          if (this.goldCount >= BATCH_MOVEMENT_COST) {
+            sendEventToServer({
+              type: "create-unit-movement",
+              data: {
+                attackerStateId: startState.id,
+                defenderStateId: actualEndState.id,
+                unitCount: startState.unitCount,
+              },
+            });
+          }
         }
 
         const lastStoreEndState = this.arrowDestinationStateId
@@ -777,13 +850,14 @@ export class GameState {
     };
 
     this.app.canvas.addEventListener("pointerup", endDrag);
-    this.app.canvas.addEventListener("pointercancel", endDrag);
-    this.app.canvas.addEventListener("lostpointercapture", () => {
-      stopDragging();
-    });
+    // this.app.canvas.addEventListener("pointercancel", endDrag);
+    // this.app.canvas.addEventListener("lostpointercapture", () => {
+    //   stopDragging();
+    // });
     window.addEventListener("resize", () => {
       this.gameMenu.setViewportSize(this.app.screen.width, this.app.screen.height);
       this.updateCurrencyHudLayout();
+      this.updatePickingTurnHudLayout();
     });
     window.addEventListener("blur", stopDragging);
   }
@@ -873,6 +947,10 @@ export class GameState {
         }
         this.updateCurrencyHudLayout();
         this.updateUpgradeMenuInfo();
+      }
+      if (event.type === "send-picking-state-details") {
+        this.pickingStateDetails = event.data;
+        this.updatePickingTurnHudLayout();
       }
     });
     //@ts-ignore

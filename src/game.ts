@@ -5,6 +5,7 @@ import {
   BackendPlayer,
   BackendState,
   ClientToServerEvent,
+  PickingStateDetails,
   ServerToClientEvent,
 } from "../frontend/src/types/shared";
 import { BatchMovement } from "../frontend/src/types/shared";
@@ -31,10 +32,7 @@ const PLAYER_COLORS: PlayerColors[] = [
   { stateBackground: "#FDEBA1", unitMarker: "#B7791F", unit: "#9A7300", basic: "#FACC15" },
 ];
 
-const dummyInitialStates = [
-  { ownerIndex: 0, states: [50] },
-  { ownerIndex: 1, states: [67] },
-];
+const dummyInitialStates: { ownerIndex: number; states: number[] }[] = [];
 
 // Keep backend timing model aligned with frontend movement logic.
 const FRONTEND_UNIT_STEP = 0.1;
@@ -48,12 +46,15 @@ const LEVEL_TO_UNIT_INCREASE_INTERVAL_MS = [5000, 3000, 1500, 750];
 const GOLD_COUNT_PER_LEVEL = [250, 500, 1000, 2000];
 
 const INITIAL_GOLD_COUNT = 100;
-const BATCH_MOVEMENT_COST = 10;
+const BATCH_MOVEMENT_COST = 25;
+
+const TOTAL_PICKS = 1;
 export class Game {
   public id: string;
   public states: BackendState[] = [];
   public players: BackendPlayer[] = [];
   private batchMovements: BatchMovement[] = [];
+  private pickingStateDetails: PickingStateDetails;
 
   constructor(users: User[], id: string) {
     this.id = id;
@@ -63,6 +64,11 @@ export class Game {
       color: PLAYER_COLORS[i],
       goldCount: INITIAL_GOLD_COUNT,
     }));
+    this.pickingStateDetails = {
+      currentPlayerId: this.players[0].userId,
+      picksRemaining: TOTAL_PICKS,
+      isActive: true,
+    };
     this.init();
   }
 
@@ -194,21 +200,23 @@ export class Game {
   }
 
   private loadStates() {
-    this.states = mapData.features.map((feature, i) => {
-      const ownerIndex = dummyInitialStates.find((item) => item.states.includes(i))?.ownerIndex;
-      const ownerId = this.players[ownerIndex ?? -1]?.userId || "-1";
-      const level = ownerId === "-1" ? 0 : 2;
-      return {
-        id: i.toString(),
-        level: level,
-        ownerId: this.players[ownerIndex ?? -1]?.userId || "-1",
-        unitCount: 10,
-        unitIncreaseTime: LEVEL_TO_UNIT_INCREASE_INTERVAL_MS[level],
-        lastUnitIncreaseTimestamp: Date.now(),
-        centerPoint: feature.geometry ? this.getLabelPoint(feature.geometry) : { x: 0, y: 0 },
-        baseIncome: getRandomNumber(40, 100),
-      };
-    });
+    this.states = mapData.features
+      .filter((feature) => feature.properties?.["CONTINENT"] === "Africa")
+      .map((feature, i) => {
+        const ownerIndex = dummyInitialStates.find((item) => item.states.includes(i))?.ownerIndex;
+        const ownerId = this.players[ownerIndex ?? -1]?.userId || "-1";
+        const level = ownerId === "-1" ? 0 : 2;
+        return {
+          id: i.toString(),
+          level: level,
+          ownerId: this.players[ownerIndex ?? -1]?.userId || "-1",
+          unitCount: ownerId === "-1" ? 5 : 8,
+          unitIncreaseTime: LEVEL_TO_UNIT_INCREASE_INTERVAL_MS[level],
+          lastUnitIncreaseTimestamp: Date.now(),
+          centerPoint: feature.geometry ? this.getLabelPoint(feature.geometry) : { x: 0, y: 0 },
+          baseIncome: ownerId === "-1" ? getRandomNumber(10, 80) : 40,
+        };
+      });
 
     sendEventToRoom(this.id, {
       type: "update-states",
@@ -271,6 +279,12 @@ export class Game {
     });
     this.sendGoldCountOfAllPlayersToClient();
   }
+  private sendPickingStateDetailsToClient() {
+    sendEventToRoom(this.id, {
+      type: "send-picking-state-details",
+      data: this.pickingStateDetails,
+    });
+  }
 
   public init() {
     const connections = this.players.map((player) =>
@@ -289,6 +303,36 @@ export class Game {
         if (data.type === "upgrade-state") {
           this.upgradeState(data.data.stateId);
         }
+        if (data.type === "pick-state") {
+          const state = this.states.find((state) => state.id === data.data.stateId);
+          if (!this.pickingStateDetails.isActive) return;
+          if (this.pickingStateDetails.currentPlayerId !== data.data.playerId) return;
+          if (this.pickingStateDetails.picksRemaining <= 0) return;
+          if (state?.ownerId !== "-1") return;
+
+          const currentPlayerIndex = this.players.findIndex(
+            (player) => player.userId === data.data.playerId,
+          );
+          const currentPlayer = this.players[currentPlayerIndex];
+          state.ownerId = currentPlayer.userId;
+          if (currentPlayerIndex === this.players.length - 1) {
+            this.pickingStateDetails.picksRemaining--;
+            this.pickingStateDetails.currentPlayerId = this.players[0].userId;
+          } else {
+            this.pickingStateDetails.currentPlayerId = this.players[currentPlayerIndex + 1].userId;
+          }
+          if (this.pickingStateDetails.picksRemaining === 0) {
+            this.pickingStateDetails.isActive = false;
+          }
+          this.sendPickingStateDetailsToClient();
+
+          state.unitCount = 8;
+          state.level = 2;
+          sendEventToRoom(this.id, {
+            type: "update-states",
+            data: [state],
+          });
+        }
       });
     });
 
@@ -305,19 +349,24 @@ export class Game {
       },
     });
     setInterval(() => {
+      if (this.pickingStateDetails.isActive) return;
       this.incrementGoldCount();
     }, 5000);
     setTimeout(() => {
       this.loadStates();
+      this.sendPickingStateDetailsToClient();
     }, 2000);
 
     setInterval(() => {
+      if (this.pickingStateDetails.isActive) return;
       this.updateUnitCountsOnBackend();
     }, 20);
     setInterval(() => {
+      if (this.pickingStateDetails.isActive) return;
       this.sendAllStatesUnitCountsToClient();
     }, 2500);
     setInterval(() => {
+      if (this.pickingStateDetails.isActive) return;
       this.sendOccupiedStatesUnitCountsToClient();
     }, 500);
   }
