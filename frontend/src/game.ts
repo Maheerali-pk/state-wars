@@ -5,7 +5,7 @@ import { GameMenu } from "./classes/game-menu";
 import worldData from "../data/all-data.json";
 import goldCoinIconSrc from "./images/menu/gold-coin.png";
 import { detectCollision, getPerpendicularLineAtStart } from "./helpers/geom";
-import { colors, PLAYER_COLORS } from "./helpers/constants";
+import { colors } from "./helpers/constants";
 import { Player, ServerToClientEvent, Unit } from "./types/shared";
 import { channel, sendEventToServer } from "./helpers/geckos-client";
 import { collapseTextChangeRangesAcrossMultipleVersions } from "typescript";
@@ -17,6 +17,11 @@ export class GameState {
   public id: string;
   private states: State[] = [];
   private units: Unit[] = [];
+  private unitDestroyEffects: {
+    graphics: Graphics;
+    startedAt: number;
+    durationMs: number;
+  }[] = [];
   private players: Player[];
 
   private myPlayerId: string;
@@ -203,7 +208,12 @@ export class GameState {
             unit.destinationCircle,
           )
         ) {
-          unit.graphics.tint = "rgba(0,0,0,0)";
+          const impactOwner = this.players.find((player) => player.id === unit.playerId);
+          this.spawnUnitDestroyEffect(
+            unit.destinationCircle.x,
+            unit.destinationCircle.y,
+            impactOwner?.colors.unitMarker || impactOwner?.colors.unit || "#FFFFFF",
+          );
           unit.graphics.destroy();
           const destinationState = unit.destinationStateId
             ? this.getStateById(unit.destinationStateId)
@@ -243,6 +253,35 @@ export class GameState {
         unit.graphics.position.set(unit.movingDetails.position.x, unit.movingDetails.position.y);
         unit.lastMovedTimestamp = Date.now();
       }
+    }
+  }
+  private spawnUnitDestroyEffect(x: number, y: number, color: string) {
+    const impactGraphic = new Graphics();
+    impactGraphic.position.set(x, y);
+    impactGraphic.circle(0, 0, 0.45).fill({ color, alpha: 0.4 });
+    impactGraphic.circle(0, 0, 0.7).stroke({ color: "#FFFFFF", width: 0.08, alpha: 0.95 });
+    this.graphics.addChild(impactGraphic);
+    this.unitDestroyEffects.push({
+      graphics: impactGraphic,
+      startedAt: Date.now(),
+      durationMs: 220,
+    });
+  }
+  private updateUnitDestroyEffects() {
+    const now = Date.now();
+    for (let i = this.unitDestroyEffects.length - 1; i >= 0; i--) {
+      const effect = this.unitDestroyEffects[i];
+      const elapsed = now - effect.startedAt;
+      const progress = elapsed / effect.durationMs;
+      if (progress >= 1) {
+        effect.graphics.destroy();
+        this.unitDestroyEffects.splice(i, 1);
+        continue;
+      }
+
+      const easedProgress = 1 - (1 - progress) * (1 - progress);
+      effect.graphics.scale.set(1 + easedProgress * 2.1);
+      effect.graphics.alpha = 1 - progress;
     }
   }
   private async loadInterBoldFont(): Promise<void> {
@@ -850,6 +889,7 @@ export class GameState {
     //   state.increaseUnitCount();
     // }
     this.updateUnits();
+    this.updateUnitDestroyEffects();
     requestAnimationFrame(this.update.bind(this));
   }
 }

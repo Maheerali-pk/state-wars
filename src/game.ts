@@ -48,6 +48,7 @@ const LEVEL_TO_UNIT_INCREASE_INTERVAL_MS = [5000, 3000, 1500, 750];
 const GOLD_COUNT_PER_LEVEL = [250, 500, 1000, 2000];
 
 const INITIAL_GOLD_COUNT = 100;
+const BATCH_MOVEMENT_COST = 10;
 export class Game {
   public id: string;
   public states: BackendState[] = [];
@@ -114,6 +115,7 @@ export class Game {
   private createBatchMovement(fromStateId: string, toStateId: string, amount: number) {
     const fromState = this.states.find((state) => state.id === fromStateId);
     const toState = this.states.find((state) => state.id === toStateId);
+    const attackingPlayer = this.players.find((player) => player.userId === fromState?.ownerId);
     if (!fromState || !toState) return;
     const distance =
       Math.sqrt(
@@ -136,6 +138,11 @@ export class Game {
     this.batchMovements.push(batchMovement);
     console.log("first arrival in seconds", timeTaken / 1000);
     fromState.unitCount -= amount;
+
+    if (attackingPlayer) {
+      attackingPlayer.goldCount -= BATCH_MOVEMENT_COST;
+      this.sendGoldCountOfAllPlayersToClient();
+    }
     sendEventToRoom(this.id, {
       type: "update-unit-counts",
       data: [{ stateId: fromStateId, unitCount: fromState.unitCount }],
