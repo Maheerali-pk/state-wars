@@ -328,6 +328,8 @@ export class Game {
 
           state.unitCount = 8;
           state.level = 2;
+          state.unitIncreaseTime = LEVEL_TO_UNIT_INCREASE_INTERVAL_MS[state.level];
+          state.lastUnitIncreaseTimestamp = Date.now();
           sendEventToRoom(this.id, {
             type: "update-states",
             data: [state],
