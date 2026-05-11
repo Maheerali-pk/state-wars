@@ -32,8 +32,8 @@ const PLAYER_COLORS: PlayerColors[] = [
 ];
 
 const dummyInitialStates = [
-  { ownerIndex: 0, states: [66, 68, 69, 70] },
-  { ownerIndex: 1, states: [67, 71] },
+  { ownerIndex: 0, states: [50] },
+  { ownerIndex: 1, states: [67] },
 ];
 
 // Keep backend timing model aligned with frontend movement logic.

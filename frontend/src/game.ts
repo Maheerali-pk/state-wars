@@ -208,12 +208,6 @@ export class GameState {
             unit.destinationCircle,
           )
         ) {
-          const impactOwner = this.players.find((player) => player.id === unit.playerId);
-          this.spawnUnitDestroyEffect(
-            unit.destinationCircle.x,
-            unit.destinationCircle.y,
-            impactOwner?.colors.unitMarker || impactOwner?.colors.unit || "#FFFFFF",
-          );
           unit.graphics.destroy();
           const destinationState = unit.destinationStateId
             ? this.getStateById(unit.destinationStateId)

@@ -7,7 +7,7 @@ import { io, sendEventToRoom } from "./src/geckos";
 import { ClientToServerEvent } from "./frontend/src/types/shared";
 import { gamesManager } from "./src/gamesManager";
 
-io.listen(5000); // default port is 9208
+io.listen(5001); // default port is 9208
 
 io.onConnection((channel) => {
   channel.onDisconnect(() => {
