@@ -21,14 +21,14 @@ interface PlayerColors {
 }
 
 const PLAYER_COLORS: PlayerColors[] = [
-  { stateBackground: "#6EA8FE", unitMarker: "#2F5FB3", unit: "#FFFFFF", basic: "#4D8DFF" },
-  // { stateBackground: "#F28B82", unitMarker: "#B9382F", unit: "#FFFFFF", basic: "#E85B52" },
-  // { stateBackground: "#81C995", unitMarker: "#2E7D4F", unit: "#FFFFFF", basic: "#4CAF6A" },
-  { stateBackground: "#B39DDB", unitMarker: "#6B46C1", unit: "#FFFFFF", basic: "#8B5CF6" },
-  { stateBackground: "#F6AD55", unitMarker: "#C05621", unit: "#FFFFFF", basic: "#ED8936" },
-  { stateBackground: "#76E4F7", unitMarker: "#0E7490", unit: "#FFFFFF", basic: "#06B6D4" },
-  { stateBackground: "#F9A8D4", unitMarker: "#BE185D", unit: "#FFFFFF", basic: "#EC4899" },
-  { stateBackground: "#FDE68A", unitMarker: "#B7791F", unit: "#1F2937", basic: "#FACC15" },
+  { stateBackground: "#7BB1FE", unitMarker: "#2F5FB3", unit: "#1E4FAF", basic: "#4D8DFF" },
+  { stateBackground: "#F49A92", unitMarker: "#B9382F", unit: "#9F2E28", basic: "#E85B52" },
+  { stateBackground: "#8DD0A0", unitMarker: "#2E7D4F", unit: "#2B6E3E", basic: "#4CAF6A" },
+  { stateBackground: "#BEABE0", unitMarker: "#6B46C1", unit: "#4F2FA6", basic: "#8B5CF6" },
+  { stateBackground: "#F7B76A", unitMarker: "#C05621", unit: "#9A4F12", basic: "#ED8936" },
+  { stateBackground: "#88E9F8", unitMarker: "#0E7490", unit: "#0B6174", basic: "#06B6D4" },
+  { stateBackground: "#F9B5DA", unitMarker: "#BE185D", unit: "#9D1F63", basic: "#EC4899" },
+  { stateBackground: "#FDEBA1", unitMarker: "#B7791F", unit: "#9A7300", basic: "#FACC15" },
 ];
 
 const dummyInitialStates = [
@@ -193,7 +193,7 @@ export class Game {
         unitIncreaseTime: LEVEL_TO_UNIT_INCREASE_INTERVAL_MS[level],
         lastUnitIncreaseTimestamp: Date.now(),
         centerPoint: feature.geometry ? this.getLabelPoint(feature.geometry) : { x: 0, y: 0 },
-        baseIncome: getRandomNumber(10, 50),
+        baseIncome: getRandomNumber(40, 100),
       };
     });
 

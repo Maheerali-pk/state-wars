@@ -1,4 +1,4 @@
-import { Assets, Container, Graphics, Sprite, Texture } from "pixi.js";
+import { Assets, Container, Graphics, Sprite, Text, Texture } from "pixi.js";
 import levelUpgradeIconSrc from "../images/menu/level-upgrade.png";
 
 export class GameMenu {
@@ -9,6 +9,12 @@ export class GameMenu {
   private readonly panel: Graphics;
   private readonly button: Graphics;
   private readonly upgradeIcon: Sprite;
+  private readonly upgradePriceLabel: Text;
+  private upgradePriceText = "Select";
+  private isUpgradeAvailable = false;
+  private isInsufficientFunds = false;
+  private viewportWidth = 0;
+  private viewportHeight = 0;
   private isButtonHovered = false;
   private isButtonPressed = false;
 
@@ -36,28 +42,44 @@ export class GameMenu {
     this.upgradeIcon.tint = "#A7F3D0";
     this.button.addChild(this.upgradeIcon);
 
+    this.upgradePriceLabel = new Text({
+      text: this.upgradePriceText,
+      anchor: 0.5,
+      style: {
+        fontSize: 12,
+        fontWeight: "700",
+        fill: "#94A3B8",
+        fontFamily: "Inter",
+        align: "center",
+      },
+    });
+    this.container.addChild(this.upgradePriceLabel);
+
     this.button.on("pointerover", () => {
+      if (!this.isUpgradeAvailable) return;
       this.isButtonHovered = true;
-      this.layout(0, this.container.height);
+      this.layout(this.viewportWidth, this.viewportHeight);
     });
     this.button.on("pointerout", () => {
       this.isButtonHovered = false;
       this.isButtonPressed = false;
-      this.layout(0, this.container.height);
+      this.layout(this.viewportWidth, this.viewportHeight);
     });
     this.button.on("pointerdown", () => {
+      if (!this.isUpgradeAvailable) return;
       this.isButtonPressed = true;
-      this.layout(0, this.container.height);
+      this.layout(this.viewportWidth, this.viewportHeight);
     });
     this.button.on("pointerup", () => {
       this.isButtonPressed = false;
-      this.layout(0, this.container.height);
+      this.layout(this.viewportWidth, this.viewportHeight);
     });
     this.button.on("pointerupoutside", () => {
       this.isButtonPressed = false;
-      this.layout(0, this.container.height);
+      this.layout(this.viewportWidth, this.viewportHeight);
     });
     this.button.on("pointertap", () => {
+      if (!this.isUpgradeAvailable) return;
       this.onUpgrade?.();
     });
     this.layout(0, 0);
@@ -77,7 +99,16 @@ export class GameMenu {
   }
 
   public setViewportSize(width: number, height: number) {
-    this.layout(Math.max(0, width), Math.max(0, height));
+    this.viewportWidth = Math.max(0, width);
+    this.viewportHeight = Math.max(0, height);
+    this.layout(this.viewportWidth, this.viewportHeight);
+  }
+
+  public setUpgradeInfo(priceText: string, canUpgrade: boolean, isInsufficientFunds = false) {
+    this.upgradePriceText = priceText;
+    this.isUpgradeAvailable = canUpgrade;
+    this.isInsufficientFunds = isInsufficientFunds;
+    this.layout(this.viewportWidth, this.viewportHeight);
   }
 
   public show() {
@@ -101,15 +132,31 @@ export class GameMenu {
     const buttonSize = GameMenu.BUTTON_SIZE;
     const buttonX = (GameMenu.WIDTH - buttonSize) / 2;
     const buttonY = GameMenu.BUTTON_TOP;
-    const buttonAlpha = this.isButtonPressed ? 0.9 : 1;
-    const borderAlpha = this.isButtonPressed ? 0.95 : 1;
-    const glowAlpha = this.isButtonHovered ? 0.38 : 0.08;
-    const buttonColor = this.isButtonHovered ? "#34D399" : "#1F8F43";
-    const borderColor = this.isButtonHovered ? "#ECFDF5" : "#A7F3D0";
+    const isEnabled = this.isUpgradeAvailable;
+    const isInsufficient = this.isInsufficientFunds;
+    const buttonAlpha = isEnabled ? (this.isButtonPressed ? 0.9 : 1) : isInsufficient ? 0.48 : 0.42;
+    const borderAlpha = isEnabled ? (this.isButtonPressed ? 0.95 : 1) : isInsufficient ? 0.75 : 0.65;
+    const glowAlpha = isEnabled ? (this.isButtonHovered ? 0.38 : 0.08) : 0.01;
+    const buttonColor = isEnabled
+      ? this.isButtonHovered
+        ? "#34D399"
+        : "#1F8F43"
+      : isInsufficient
+        ? "#1E293B"
+        : "#0F172A";
+    const borderColor = isEnabled
+      ? this.isButtonHovered
+        ? "#ECFDF5"
+        : "#A7F3D0"
+      : isInsufficient
+        ? "#64748B"
+        : "#475569";
+    const glowColor = "#475569";
 
+    this.button.cursor = isEnabled ? "pointer" : "not-allowed";
     this.button.clear();
     this.button.roundRect(buttonX - 3, buttonY - 3, buttonSize + 6, buttonSize + 6, 14).fill({
-      color: "#34D399",
+      color: glowColor,
       alpha: glowAlpha,
     });
     this.button.roundRect(buttonX, buttonY, buttonSize, buttonSize, 12).fill({
@@ -127,6 +174,11 @@ export class GameMenu {
       buttonX + buttonSize / 2,
       buttonY + buttonSize / 2 + iconPressOffset,
     );
+    this.upgradeIcon.alpha = isEnabled ? 1 : isInsufficient ? 0.5 : 0.42;
+    this.upgradeIcon.tint = isEnabled ? 0xffffff : "#94A3B8";
+    this.upgradePriceLabel.text = this.upgradePriceText;
+    this.upgradePriceLabel.style.fill = isEnabled ? "#F8FAFC" : "#64748B";
+    this.upgradePriceLabel.position.set(GameMenu.WIDTH / 2, buttonY + buttonSize + 14);
   }
 
   private async loadIcons() {

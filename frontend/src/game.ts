@@ -11,6 +11,7 @@ import { channel, sendEventToServer } from "./helpers/geckos-client";
 import { collapseTextChangeRangesAcrossMultipleVersions } from "typescript";
 
 const UNIT_STEP = 0.1;
+const UPGRADE_PRICES = [250, 500, 1000, 2000];
 
 export class GameState {
   public id: string;
@@ -71,6 +72,9 @@ export class GameState {
       if (!this.selectedStateId) return;
       const selectedState = this.getStateById(this.selectedStateId);
       if (!selectedState) return;
+      const upgradePrice = UPGRADE_PRICES[selectedState.level];
+      if (upgradePrice === undefined) return;
+      if (this.goldCount < upgradePrice) return;
       sendEventToServer({
         type: "upgrade-state",
         data: {
@@ -79,6 +83,7 @@ export class GameState {
       });
     });
     this.setupCurrencyHud();
+    this.updateUpgradeMenuInfo();
 
     void this.init();
   }
@@ -100,6 +105,23 @@ export class GameState {
   }
   private getStateById(stateId: string): State | undefined {
     return this.states.find((state) => state.id === stateId);
+  }
+
+  private updateUpgradeMenuInfo() {
+    const selectedState = this.selectedStateId
+      ? this.getStateById(this.selectedStateId)
+      : undefined;
+    if (!selectedState || selectedState.ownerId !== this.myPlayerId) {
+      this.gameMenu.setUpgradeInfo("Select", false);
+      return;
+    }
+    const price = UPGRADE_PRICES[selectedState.level];
+    if (price === undefined) {
+      this.gameMenu.setUpgradeInfo("MAX", false);
+      return;
+    }
+    const canAfford = this.goldCount >= price;
+    this.gameMenu.setUpgradeInfo(price.toLocaleString("en-US"), canAfford, !canAfford);
   }
 
   private startUnitMovementSimulation(
@@ -159,7 +181,9 @@ export class GameState {
             speed: 10,
           },
         };
-        newUnit.graphics.circle(0, 0, 0.3).fill({ color: "rgba(0,0,0,1)" });
+        const player = this.players.find((player) => player.id === attackerState.ownerId);
+        newUnit.graphics.circle(0, 0, 0.35).fill({ color: player?.colors.unit || "#FFFFFF" });
+        newUnit.graphics.stroke({ color: "#FFFFFF", width: 0.07 });
         this.units.push(newUnit);
         this.graphics.addChild(newUnit.graphics);
       }
@@ -672,6 +696,7 @@ export class GameState {
             newSelectedState.select();
             this.bringStateToFront(newSelectedState);
           }
+          this.updateUpgradeMenuInfo();
         } else {
           const previousSelectedState = this.states.find((state) => state.isSelected);
           if (previousSelectedState) {
@@ -679,6 +704,7 @@ export class GameState {
             previousSelectedState.deselect();
           }
           this.selectedStateId = "";
+          this.updateUpgradeMenuInfo();
         }
       }
       if (this.mouseButtonDown === 0 && this.isArrowDragging) {
@@ -766,6 +792,7 @@ export class GameState {
           }
         }
         this.drawStateLabels();
+        this.updateUpgradeMenuInfo();
       }
       if (event.type === "update-batch-movements") {
         const batchMovement = event.data[0];
@@ -797,6 +824,7 @@ export class GameState {
             this.drawStateLabel(state);
           }
         }
+        this.updateUpgradeMenuInfo();
       }
       if (event.type === "update-gold-count") {
         const goldCounts = event.data;
@@ -810,6 +838,7 @@ export class GameState {
           }
         }
         this.updateCurrencyHudLayout();
+        this.updateUpgradeMenuInfo();
       }
     });
     //@ts-ignore
