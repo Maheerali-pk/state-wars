@@ -808,6 +808,7 @@ export class GameState {
 
     //@ts-ignore
     channel.on("server-to-client", (event: ServerToClientEvent) => {
+      console.log("event from backend", event);
       if (event.type === "update-states") {
         const states = event.data;
         console.log("update-states", states);

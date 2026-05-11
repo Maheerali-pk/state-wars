@@ -296,6 +296,6 @@ export class Game {
 
     setInterval(() => {
       this.updateUnitCountsOnBackend();
-    }, 20);
+    }, 1000);
   }
 }
