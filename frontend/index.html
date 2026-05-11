@@ -10,7 +10,18 @@
 
 <body>
     <div id="app">
-        <div id="pixi-container"></div>
+        <div id="main-page" class="page">
+            <h1>Lobbies</h1>
+            <button id="create-lobby-btn">Create lobby</button>
+            <ul id="lobby-list"></ul>
+        </div>
+        <div id="lobby-page" class="page hidden">
+            <h1 id="lobby-title">Lobby</h1>
+            <ul id="lobby-users-list"></ul>
+            <button id="start-lobby-btn" class="hidden">Start</button>
+            <p>Waiting for host to start.</p>
+        </div>
+        <div id="pixi-container" class="hidden"></div>
     </div>
     <script type="module" src="/src/main.ts"></script>
 </body>

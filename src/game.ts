@@ -21,7 +21,7 @@ interface PlayerColors {
   basic: string;
 }
 
-const PLAYER_COLORS: PlayerColors[] = [
+export const PLAYER_COLORS: PlayerColors[] = [
   { stateBackground: "#7BB1FE", unitMarker: "#2F5FB3", unit: "#1E4FAF", basic: "#4D8DFF" },
   { stateBackground: "#F49A92", unitMarker: "#B9382F", unit: "#9F2E28", basic: "#E85B52" },
   { stateBackground: "#8DD0A0", unitMarker: "#2E7D4F", unit: "#2B6E3E", basic: "#4CAF6A" },

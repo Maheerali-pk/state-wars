@@ -4,9 +4,10 @@ import fs from "fs";
 import path from "path";
 import { usersManager } from "./src/player";
 import { Game } from "./src/game";
-import { io } from "./src/geckos";
-import { ClientToServerEvent } from "./frontend/src/types/shared";
+import { io, sendEventAllUsers, sendEventToRoom } from "./src/geckos";
+import { ClientToServerEvent, User } from "./frontend/src/types/shared";
 import { gamesManager } from "./src/gamesManager";
+import { lobbyManager } from "./src/lobbyManager";
 
 const app = express();
 const port = Number(process.env.PORT || 5001);
@@ -55,39 +56,66 @@ server.listen(port, () => {
 io.onConnection((channel) => {
   channel.onDisconnect(() => {
     console.log(`${channel.id} got disconnected`);
+    lobbyManager.handleUserDisconnect(channel.id || "");
+    lobbyManager.cleanLobbies();
+    sendEventAllUsers({
+      type: "update-lobbies",
+      data: lobbyManager.getLobbies(),
+    });
     usersManager.removeUser(channel.id || "");
   });
   console.log(`${channel.id} connected to the server`);
 
+  usersManager.addUser({
+    id: channel.id || "",
+    name: `Player ${usersManager.getUsers().length + 1}`,
+  });
+
+  channel.emit("server-to-client", {
+    type: "update-lobbies",
+    data: lobbyManager.getLobbies(),
+  });
   //@ts-ignore
   channel.on("client-to-server", (data: ClientToServerEvent) => {
-    if (data.type === "joined-queue") {
-      usersManager.addUser({
-        id: channel.id || "",
-        name: `Player ${usersManager.getUsers().length + 1}`,
+    if (data.type === "create-lobby") {
+      lobbyManager.addLobby({
+        id: crypto.randomUUID(),
+        userIds: [channel.id || ""],
+        hostId: channel.id || "",
       });
-      const allUsers = usersManager.getUsers();
-      const allGames = gamesManager.getGames();
-
-      const playersWithoutGame = allUsers.filter(
-        (user) =>
-          !allGames.some((game) => game.players.some((player) => player.userId === user.id)),
-      );
-
-      if (playersWithoutGame.length === 2) {
-        const users = usersManager.getUsers();
-        const con1 = io.connectionsManager.getConnection(users[0].id);
-        const con2 = io.connectionsManager.getConnection(users[1].id);
-        const gameId = crypto.randomUUID();
-        if (con1 && con2) {
-          con1.channel.join(gameId);
-          con2.channel.join(gameId);
-        }
-        const game = new Game(users, gameId);
-        gamesManager.addGame(game);
-      }
-      console.log(`${channel.id} joined the game`);
+      sendEventAllUsers({
+        type: "update-lobbies",
+        data: lobbyManager.getLobbies(),
+      });
     }
+    if (data.type === "join-lobby") {
+      lobbyManager.joinLobby(data.data.lobbyId, channel.id || "");
+      sendEventAllUsers({
+        type: "update-lobbies",
+        data: lobbyManager.getLobbies(),
+      });
+    }
+    if (data.type === "start-lobby-game") {
+      const lobby = lobbyManager.getLobby(data.data.lobbyId);
+      if (!lobby) return;
+      if (lobby.hostId !== channel.id) return;
+      const users = lobby.userIds.map((userId) => usersManager.getUser(userId) as User);
+      const gameId = crypto.randomUUID();
+      const connections = users.map((user) => io.connectionsManager.getConnection(user.id));
+      connections.forEach((connection) => {
+        connection?.channel.join(gameId);
+      });
+      const game = new Game(users, gameId);
+      gamesManager.addGame(game);
+      console.log(`Game started with id ${gameId}`);
+      console.log(`Users: ${users.map((user) => user.name).join(", ")}`);
+      lobbyManager.removeLobby(lobby.id);
+      sendEventAllUsers({
+        type: "update-lobbies",
+        data: lobbyManager.getLobbies(),
+      });
+    }
+
     if (data.type === "create-unit-movement") {
       console.log("create-unit-movement called", JSON.stringify(data, null, 2));
     }

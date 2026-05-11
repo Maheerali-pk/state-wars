@@ -58,11 +58,27 @@ type PickStateEvent = {
   type: "pick-state";
   data: { stateId: string; playerId: string };
 };
+
+type CreateLobbyEvent = {
+  type: "create-lobby";
+};
+
+type JoinLobbyEvent = {
+  type: "join-lobby";
+  data: { lobbyId: string };
+};
+type StartLobbyGameEvent = {
+  type: "start-lobby-game";
+  data: { lobbyId: string };
+};
 export type ClientToServerEvent =
   | JoinedQueueEvent
   | CreateUnitMovementEvent
   | UpgradeStateEvent
-  | PickStateEvent;
+  | CreateLobbyEvent
+  | JoinLobbyEvent
+  | PickStateEvent
+  | StartLobbyGameEvent;
 
 type UpdateStatesEvent = {
   type: "update-states";
@@ -92,6 +108,10 @@ type SendPickingStateDetailsEvent = {
   type: "send-picking-state-details";
   data: PickingStateDetails;
 };
+type UpdateLobbiesEvent = {
+  type: "update-lobbies";
+  data: Lobby[];
+};
 export type ServerToClientEvent =
   | UpdateStatesEvent
   | UpdateBatchMovementsEvent
@@ -99,6 +119,7 @@ export type ServerToClientEvent =
   | UpdateUnitCountsEvent
   | UpdateStateOwnerChangesEvent
   | UpdateGoldCount
+  | UpdateLobbiesEvent
   | SendPickingStateDetailsEvent;
 
 export interface BackendState {
@@ -131,4 +152,10 @@ export interface BackendPlayer {
 export interface User {
   id: string;
   name: string;
+}
+
+export interface Lobby {
+  id: string;
+  userIds: string[];
+  hostId: string;
 }

@@ -13,3 +13,13 @@ body {
     justify-content: center;
     align-items: center;
 }
+
+.hidden {
+    display: none !important;
+}
+
+.page {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
