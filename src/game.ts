@@ -107,7 +107,6 @@ export class Game {
           } else {
             toState.unitCount -= Math.round(newCollisions * DEFENSE_DAMAGE_MULTIPLIER);
           }
-          toState.unitCount -= Math.round(newCollisions * DEFENSE_DAMAGE_MULTIPLIER);
           if (toState.unitCount < 0) {
             toState.ownerId = batchMovement.ownerId;
             stateOwnerChanges.push(batchMovement.toStateId);

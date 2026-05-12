@@ -23,6 +23,7 @@ const CHUNK_LOCAL_GAP = 0.79;
 const CHUNK_LOCAL_DELAY = 35;
 
 const POINTER_MOVE_THRESHOLD = 10;
+const MOBILE_LONG_PRESS_MS = 200;
 export class GameState {
   public id: string;
   private states: State[] = [];
@@ -38,6 +39,14 @@ export class GameState {
   private zoom: number = 1;
   private maxZoom: number = 15;
   private minZoom: number = 0.1;
+  private isMobile: boolean = true;
+  private activeTouchPointers: Map<number, { x: number; y: number }> = new Map();
+  private isPinching: boolean = false;
+  private pinchStartDistance: number = 0;
+  private pinchStartZoom: number = 1;
+  private longPressTimeout: ReturnType<typeof setTimeout> | null = null;
+  private longPressPointerId: number | null = null;
+  private didTriggerLongPressSelection: boolean = false;
   private isDragging: boolean = false;
   private isArrowDragging: boolean = false;
   private dragStart: { x: number; y: number } = { x: 0, y: 0 };
@@ -281,6 +290,66 @@ export class GameState {
       },
     });
   }
+  private applyZoomAtCanvasPoint(nextZoom: number, canvasX: number, canvasY: number) {
+    const prevZoom = this.zoom;
+    this.zoom = Math.min(this.maxZoom, Math.max(this.minZoom, nextZoom));
+    if (this.zoom === prevZoom) return;
+
+    const worldX = (canvasX - this.graphics.position.x) / prevZoom;
+    const worldY = (canvasY - this.graphics.position.y) / prevZoom;
+    this.graphics.scale.set(this.zoom);
+    this.graphics.position.set(canvasX - worldX * this.zoom, canvasY - worldY * this.zoom);
+  }
+  private getTouchPinchMetrics() {
+    if (this.activeTouchPointers.size !== 2) return null;
+    const touchPoints = [...this.activeTouchPointers.values()];
+    const [touchA, touchB] = touchPoints;
+    if (!touchA || !touchB) return null;
+    const dx = touchA.x - touchB.x;
+    const dy = touchA.y - touchB.y;
+    return {
+      distance: Math.hypot(dx, dy),
+      center: {
+        x: (touchA.x + touchB.x) / 2,
+        y: (touchA.y + touchB.y) / 2,
+      },
+    };
+  }
+  private clearLongPressSelectionTimer() {
+    if (this.longPressTimeout) {
+      clearTimeout(this.longPressTimeout);
+      this.longPressTimeout = null;
+    }
+    this.longPressPointerId = null;
+  }
+  private selectStateAtCanvasPoint(mouseX: number, mouseY: number) {
+    const stagePoint = { x: mouseX, y: mouseY };
+    const newSelectedState = this.states.find((state) => {
+      const localPoint = state.graphics.toLocal(stagePoint, this.app.stage);
+      return state.graphics.containsPoint(localPoint);
+    });
+    if (newSelectedState) {
+      const previousSelectedState = this.states.find((state) => state.isSelected);
+      const previousSelectedStateId = previousSelectedState?.id || "";
+      if (previousSelectedState) {
+        previousSelectedState.deselect();
+      }
+      if (newSelectedState.id !== previousSelectedStateId) {
+        this.selectedStateId = newSelectedState.id;
+        newSelectedState.select();
+        this.bringStateToFront(newSelectedState);
+      }
+      this.updateUpgradeMenuInfo();
+      return;
+    }
+
+    const previousSelectedState = this.states.find((state) => state.isSelected);
+    if (previousSelectedState) {
+      previousSelectedState.deselect();
+    }
+    this.selectedStateId = "";
+    this.updateUpgradeMenuInfo();
+  }
   private async renderApp() {
     const offset = { x: 0, y: 0 };
     offset.x = (window.innerWidth - this.graphics.width) / 2;
@@ -309,18 +378,8 @@ export class GameState {
       const rect = this.app.canvas.getBoundingClientRect();
       const mouseX = event.clientX - rect.left;
       const mouseY = event.clientY - rect.top;
-      const prevZoom = this.zoom;
-
-      // Scale zoom by delta for consistent behavior across mouse/trackpad.
-      this.zoom *= Math.exp(-event.deltaY * 0.0015);
-      this.zoom = Math.min(this.maxZoom, Math.max(this.minZoom, this.zoom));
-      if (this.zoom === prevZoom) return;
-
-      const worldX = (mouseX - this.graphics.position.x) / prevZoom;
-      const worldY = (mouseY - this.graphics.position.y) / prevZoom;
-
-      this.graphics.scale.set(this.zoom);
-      this.graphics.position.set(mouseX - worldX * this.zoom, mouseY - worldY * this.zoom);
+      const nextZoom = this.zoom * Math.exp(-event.deltaY * 0.0015);
+      this.applyZoomAtCanvasPoint(nextZoom, mouseX, mouseY);
     });
     const stopDragging = () => {
       this.isDragging = false;
@@ -329,6 +388,7 @@ export class GameState {
       this.pointerDownPos = { x: 0, y: 0 };
       this.mouseButtonDown = -1;
       this.dragArrow.clear();
+      this.clearLongPressSelectionTimer();
     };
 
     this.app.canvas.style.touchAction = "none";
@@ -337,6 +397,34 @@ export class GameState {
       const rect = this.app.canvas.getBoundingClientRect();
       const mouseX = event.clientX - rect.left;
       const mouseY = event.clientY - rect.top;
+
+      if (this.isMobile && event.pointerType === "touch") {
+        if (this.activeTouchPointers.has(event.pointerId)) {
+          this.activeTouchPointers.set(event.pointerId, { x: mouseX, y: mouseY });
+        }
+        if (
+          this.longPressPointerId === event.pointerId &&
+          (Math.abs(mouseX - this.pointerDownPos.x) > POINTER_MOVE_THRESHOLD ||
+            Math.abs(mouseY - this.pointerDownPos.y) > POINTER_MOVE_THRESHOLD)
+        ) {
+          this.clearLongPressSelectionTimer();
+        }
+
+        if (this.activeTouchPointers.size === 2) {
+          this.clearLongPressSelectionTimer();
+          const pinchMetrics = this.getTouchPinchMetrics();
+          if (!pinchMetrics || pinchMetrics.distance <= 0) return;
+          if (!this.isPinching) {
+            this.isPinching = true;
+            this.pinchStartDistance = pinchMetrics.distance;
+            this.pinchStartZoom = this.zoom;
+          }
+          const distanceScale = pinchMetrics.distance / this.pinchStartDistance;
+          const nextZoom = this.pinchStartZoom * distanceScale;
+          this.applyZoomAtCanvasPoint(nextZoom, pinchMetrics.center.x, pinchMetrics.center.y);
+          return;
+        }
+      }
 
       if (this.isArrowDragging && this.mouseButtonDown === 0) {
         console.log("Moving arrow");
@@ -371,11 +459,91 @@ export class GameState {
       this.dragStart = { x: mouseX, y: mouseY };
     });
     this.app.canvas.addEventListener("pointerdown", (event) => {
+      const rect = this.app.canvas.getBoundingClientRect();
+      const mouseX = event.clientX - rect.left;
+      const mouseY = event.clientY - rect.top;
+
+      if (this.isMobile && event.pointerType === "touch") {
+        this.activeTouchPointers.set(event.pointerId, { x: mouseX, y: mouseY });
+        if (this.activeTouchPointers.size === 2) {
+          const pinchMetrics = this.getTouchPinchMetrics();
+          if (pinchMetrics && pinchMetrics.distance > 0) {
+            this.isPinching = true;
+            this.pinchStartDistance = pinchMetrics.distance;
+            this.pinchStartZoom = this.zoom;
+            stopDragging();
+            return;
+          }
+        }
+
+        event.preventDefault();
+        this.mouseButtonDown = 0;
+        this.pointerDownPos = { x: mouseX, y: mouseY };
+        this.dragStart = { x: mouseX, y: mouseY };
+        this.app.canvas.setPointerCapture(event.pointerId);
+
+        const touchedState = this.getStateAtCanvasPoint(mouseX, mouseY);
+        const canDragAttackArrow =
+          touchedState?.id === this.selectedStateId && touchedState.ownerId === this.myPlayerId;
+
+        if (canDragAttackArrow && touchedState) {
+          this.arrowStartPoint = { x: touchedState.labelPoint.x, y: touchedState.labelPoint.y };
+          this.isArrowDragging = true;
+          this.isDragging = false;
+          this.arrowStartStateId = touchedState.id;
+          this.arrowDestinationStateId = null;
+        } else {
+          this.isDragging = true;
+          this.isArrowDragging = false;
+          this.arrowStartStateId = null;
+          this.arrowDestinationStateId = null;
+          this.dragArrow.clear();
+        }
+        this.clearLongPressSelectionTimer();
+        if (
+          touchedState &&
+          !this.pickingStateDetails?.isActive &&
+          this.activeTouchPointers.size === 1
+        ) {
+          this.longPressPointerId = event.pointerId;
+          this.didTriggerLongPressSelection = false;
+          this.longPressTimeout = setTimeout(() => {
+            if (this.longPressPointerId !== event.pointerId) return;
+            const pointer = this.activeTouchPointers.get(event.pointerId);
+            if (!pointer) return;
+            if (this.activeTouchPointers.size !== 1 || this.isPinching) return;
+            if (
+              Math.abs(pointer.x - this.pointerDownPos.x) > POINTER_MOVE_THRESHOLD ||
+              Math.abs(pointer.y - this.pointerDownPos.y) > POINTER_MOVE_THRESHOLD
+            ) {
+              return;
+            }
+            this.selectStateAtCanvasPoint(pointer.x, pointer.y);
+            this.didTriggerLongPressSelection = true;
+            const selectedState = this.getStateById(this.selectedStateId);
+            if (selectedState && selectedState.ownerId === this.myPlayerId) {
+              this.arrowStartPoint = {
+                x: selectedState.labelPoint.x,
+                y: selectedState.labelPoint.y,
+              };
+              this.arrowStartStateId = selectedState.id;
+              this.arrowDestinationStateId = null;
+              this.isArrowDragging = true;
+              this.isDragging = false;
+              this.dragStart = { x: pointer.x, y: pointer.y };
+              this.pointerDownPos = { x: pointer.x, y: pointer.y };
+            } else {
+              this.isDragging = false;
+              this.isArrowDragging = false;
+            }
+            this.clearLongPressSelectionTimer();
+          }, MOBILE_LONG_PRESS_MS);
+        }
+        return;
+      }
+
       if (event.button === 2 || event.button === 1) {
         event.preventDefault();
-        const rect = this.app.canvas.getBoundingClientRect();
-        const mouseX = event.clientX - rect.left;
-        const mouseY = event.clientY - rect.top;
 
         this.pointerDownPos = { x: mouseX, y: mouseY };
         this.dragStart = { x: mouseX, y: mouseY };
@@ -384,9 +552,6 @@ export class GameState {
       }
       if (event.button === 0) {
         event.preventDefault();
-        const rect = this.app.canvas.getBoundingClientRect();
-        const mouseX = event.clientX - rect.left;
-        const mouseY = event.clientY - rect.top;
         const clickedState = this.getStateAtCanvasPoint(mouseX, mouseY);
         if (!clickedState) return;
         if (clickedState.ownerId === this.myPlayerId) {
@@ -404,6 +569,27 @@ export class GameState {
     });
 
     const endDrag = (event: PointerEvent) => {
+      if (this.isMobile && event.pointerType === "touch") {
+        this.activeTouchPointers.delete(event.pointerId);
+        if (this.longPressPointerId === event.pointerId) {
+          this.clearLongPressSelectionTimer();
+        }
+        const wasPinching = this.isPinching;
+        if (this.activeTouchPointers.size < 2) {
+          this.isPinching = false;
+          this.pinchStartDistance = 0;
+        }
+        if (wasPinching) {
+          stopDragging();
+          return;
+        }
+        if (this.didTriggerLongPressSelection && !this.isArrowDragging && !this.isDragging) {
+          this.didTriggerLongPressSelection = false;
+          stopDragging();
+          return;
+        }
+      }
+
       //Clichk
       const rect = this.app.canvas.getBoundingClientRect();
       const mouseX = event.clientX - rect.left;
@@ -421,31 +607,7 @@ export class GameState {
 
       // For selecting state
       if (mouseNotMovedAfterDown && this.mouseButtonDown === 0 && !pickingStates) {
-        const stagePoint = { x: mouseX, y: mouseY };
-        const newSelectedState = this.states.find((state) => {
-          const localPoint = state.graphics.toLocal(stagePoint, this.app.stage);
-          return state.graphics.containsPoint(localPoint);
-        });
-        if (newSelectedState) {
-          const previousSelectedState = this.states.find((state) => state.isSelected);
-          const previousSelectedStateId = previousSelectedState?.id || "";
-          if (previousSelectedState) {
-            previousSelectedState.deselect();
-          }
-          if (newSelectedState.id !== previousSelectedStateId) {
-            this.selectedStateId = newSelectedState.id;
-            newSelectedState.select();
-            this.bringStateToFront(newSelectedState);
-          }
-          this.updateUpgradeMenuInfo();
-        } else {
-          const previousSelectedState = this.states.find((state) => state.isSelected);
-          if (previousSelectedState) {
-            previousSelectedState.deselect();
-          }
-          this.selectedStateId = "";
-          this.updateUpgradeMenuInfo();
-        }
+        this.selectStateAtCanvasPoint(mouseX, mouseY);
       }
 
       //Dragging arrow
@@ -465,6 +627,10 @@ export class GameState {
                 unitCount: startState.unitCount,
               },
             });
+            if (this.isMobile) {
+              startState.deselect();
+              this.selectedStateId = "";
+            }
           }
         }
 
