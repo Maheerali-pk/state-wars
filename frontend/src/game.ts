@@ -39,7 +39,7 @@ export class GameState {
   private zoom: number = 1;
   private maxZoom: number = 15;
   private minZoom: number = 0.1;
-  private isMobile: boolean = true;
+  private isMobile: boolean = false;
   private activeTouchPointers: Map<number, { x: number; y: number }> = new Map();
   private isPinching: boolean = false;
   private pinchStartDistance: number = 0;
