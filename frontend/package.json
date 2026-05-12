@@ -8,7 +8,7 @@
     "build": "npm run lint && tsc && vite build",
     "build:prod": "vite build",
     "lint": "eslint .",
-    "dev": "vite"
+    "dev": "vite --host 0.0.0.0"
   },
   "dependencies": {
     "@pixi/filter-drop-shadow": "^5.2.0",

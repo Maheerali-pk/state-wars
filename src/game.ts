@@ -384,7 +384,7 @@ export class Game {
     setTimeout(() => {
       this.loadStates();
       this.sendPickingStateDetailsToClient();
-    }, 5000);
+    }, 1000);
 
     setInterval(() => {
       if (this.pickingStateDetails.isActive) return;

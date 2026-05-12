@@ -1,6 +1,8 @@
 import { Feature, GeoJsonProperties, Geometry } from "geojson";
 import { Container, Graphics, Text } from "pixi.js";
 import { colors } from "../helpers/constants";
+import { GameState } from "../game";
+import { Player } from "../types/shared";
 
 export class State {
   private static readonly DEFAULT_FILL_COLOR = "#D7D2CB";
@@ -9,6 +11,13 @@ export class State {
   private static readonly SELECTED_BORDER_WIDTH = 0.4;
   private static readonly HOVER_TINT_COLOR = "#ffffff";
   private static readonly HOVER_TINT_ALPHA = 0.2;
+
+  private static readonly MARKER_RADIUS = 2;
+  private static readonly MARKER_GEOMETRY_RADIUS = 64;
+  private static readonly LEVEL_ARC_GEOMETRY_OFFSET = 10;
+  private static readonly LEVEL_ARC_GEOMETRY_STROKE = 20;
+  private static readonly LABEL_FONT_SIZE = 32;
+  private static readonly LABEL_TARGET_HEIGHT = 2;
   id: string;
   name: string;
   graphics: Graphics;
@@ -139,6 +148,116 @@ export class State {
     this.lastUnitIncreaseTimestamp = now;
     // this.unitLabelElement.text = String(this.unitCount);
     this.unitLabelElement.text = this.unitCount.toString();
+  }
+
+  public drawMarker(isDestination: boolean, players: Player[], myPlayerId: string) {
+    if (this.markerElement) {
+      this.markerElement.destroy();
+    }
+    const marker = new Container();
+    marker.position.set(this.labelPoint.x, this.labelPoint.y);
+
+    const circle = new Graphics();
+    const arc = new Graphics();
+    const arcBackground = new Graphics();
+    const owner = players.find((player) => player.id === this.ownerId);
+    const color = owner ? owner.colors.unitMarker : "#1F2937";
+    const level = this.level;
+
+    if (isDestination) {
+      const owner = players.find((player) => player.id === this.ownerId);
+      const color =
+        owner?.id === myPlayerId
+          ? colors.arrowDestinationState.own
+          : colors.arrowDestinationState.other;
+      circle.circle(0, 0, State.MARKER_GEOMETRY_RADIUS * 3).fill({ color: color });
+    }
+    circle.circle(0, 0, State.MARKER_GEOMETRY_RADIUS).fill({ color: color });
+    arcBackground
+      .arc(0, 0, State.MARKER_GEOMETRY_RADIUS + State.LEVEL_ARC_GEOMETRY_OFFSET + 2, 0, Math.PI * 2)
+      .stroke({ color: "#0B1220", alpha: 0.5, width: 20 });
+    let arcAngle = 0;
+    if (level === 0) {
+      arcAngle = 0;
+    }
+    if (level === 1) {
+      arcAngle = Math.PI / 2;
+    }
+    if (level === 2) {
+      arcAngle = Math.PI;
+    }
+    if (level === 3) {
+      arcAngle = Math.PI * 2;
+    }
+    const arcRadius = State.MARKER_GEOMETRY_RADIUS + State.LEVEL_ARC_GEOMETRY_OFFSET;
+    const arcStartAngle = -Math.PI / 2;
+    if (arcAngle > 0) {
+      arc.arc(0, 0, arcRadius + 2, arcStartAngle, arcStartAngle + arcAngle).stroke({
+        color: "#FFD54A",
+        width: State.LEVEL_ARC_GEOMETRY_STROKE - 7,
+        alpha: 1,
+      });
+    }
+
+    const markerScale = State.MARKER_RADIUS / State.MARKER_GEOMETRY_RADIUS;
+    marker.addChild(arcBackground);
+    circle.scale.set(markerScale);
+    arc.scale.set(markerScale);
+    arcBackground.scale.set(markerScale);
+    marker.addChild(circle);
+
+    const label = new Text({
+      text: String(this.unitCount),
+      anchor: 0.5,
+      style: {
+        fontSize: State.LABEL_FONT_SIZE,
+        fontWeight: "700",
+        fill: "#ffffff",
+        fontFamily: "Inter",
+        align: "center",
+      },
+    });
+    const scale = State.LABEL_TARGET_HEIGHT / State.LABEL_FONT_SIZE;
+    const incomeLabel = new Text({
+      text: "+" + String(this.income),
+      anchor: 0.5,
+      style: {
+        fontSize: State.LABEL_FONT_SIZE / 1.25,
+        fontWeight: "600",
+        fill: "#DCFCE7",
+      },
+    });
+    incomeLabel.scale.set(scale * 0.92);
+
+    const incomeBadge = new Container();
+    const incomeBadgeBg = new Graphics();
+    const badgePaddingX = 0.55;
+    const badgePaddingY = 0.3;
+    const badgeWidth = incomeLabel.width + badgePaddingX * 2;
+    const badgeHeight = incomeLabel.height + badgePaddingY * 2;
+
+    incomeBadgeBg.roundRect(0, 0, badgeWidth, badgeHeight, badgeHeight / 2).fill({
+      color: "#14532D",
+      alpha: 0.95,
+    });
+    incomeBadgeBg.roundRect(0, 0, badgeWidth, badgeHeight, badgeHeight / 2).stroke({
+      color: "#86EFAC",
+      width: 0.1,
+      alpha: 0.9,
+    });
+    incomeLabel.position.set(badgeWidth / 2, badgeHeight / 2);
+    incomeBadge.addChild(incomeBadgeBg);
+    incomeBadge.addChild(incomeLabel);
+    incomeBadge.position.set(State.MARKER_RADIUS + 0.55, -State.MARKER_RADIUS - badgeHeight + 0.18);
+    marker.addChild(incomeBadge);
+    this.setUnitLabelElement(label);
+    this.setMarkerElement(marker);
+    label.scale.set(scale);
+    label.position.set(0, 0);
+    marker.addChild(label);
+    marker.addChild(arc);
+
+    this.graphics.addChild(marker);
   }
   public setUnitCount(unitCount: number) {
     this.unitCount = unitCount;
