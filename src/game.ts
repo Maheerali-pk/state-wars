@@ -35,6 +35,7 @@ export const PLAYER_COLORS: PlayerColors[] = [
 const dummyInitialStates: { ownerIndex: number; states: number[] }[] = [];
 
 // Keep backend timing model aligned with frontend movement logic.
+
 const FRONTEND_UNIT_STEP = 0.1;
 const FRONTEND_UNIT_MOVE_INTERVAL_MS = 10;
 const FRONTEND_CHUNK_SIZE = 5;
@@ -47,7 +48,10 @@ const GOLD_COUNT_PER_LEVEL = [250, 500, 1000];
 
 const INITIAL_GOLD_COUNT = 100;
 const BATCH_MOVEMENT_COST = 25;
-const UNIT_COUNT_WHEN_NEUTRAL_GROWTH_RATE_DROP = 25;
+const UNIT_COUNT_WHEN_NEUTRAL_GROWTH_RATE_DROP = 15;
+const EXTRA_UNITS_ON_CONQUEST = 8;
+const DEFENSE_DAMAGE_MULTIPLIER = 0.85;
+const PICKED_STATE_UNIT_COUNT = 10;
 
 const TOTAL_PICKS = 1;
 export class Game {
@@ -98,11 +102,20 @@ export class Game {
         if (toState.ownerId === batchMovement.ownerId) {
           toState.unitCount += newCollisions;
         } else {
-          toState.unitCount -= newCollisions;
+          if (isTargetNeutral) {
+            toState.unitCount -= newCollisions;
+          } else {
+            toState.unitCount -= Math.round(newCollisions * DEFENSE_DAMAGE_MULTIPLIER);
+          }
+          toState.unitCount -= Math.round(newCollisions * DEFENSE_DAMAGE_MULTIPLIER);
           if (toState.unitCount < 0) {
             toState.ownerId = batchMovement.ownerId;
             stateOwnerChanges.push(batchMovement.toStateId);
-            toState.unitCount = Math.abs(toState.unitCount);
+            if (!isTargetNeutral) {
+              toState.unitCount = Math.abs(toState.unitCount) + EXTRA_UNITS_ON_CONQUEST;
+            } else {
+              toState.unitCount = Math.abs(toState.unitCount);
+            }
             if (isTargetNeutral) {
               toState.unitIncreaseTime = LEVEL_TO_UNIT_INCREASE_INTERVAL_MS[0];
             }
@@ -340,7 +353,7 @@ export class Game {
           }
           this.sendPickingStateDetailsToClient();
 
-          state.unitCount = 8;
+          state.unitCount = PICKED_STATE_UNIT_COUNT;
           state.level = 2;
           state.unitIncreaseTime = LEVEL_TO_UNIT_INCREASE_INTERVAL_MS[state.level];
           state.lastUnitIncreaseTimestamp = Date.now();
