@@ -1,19 +1,17 @@
 import { FeatureCollection } from "geojson";
-import { Application, Assets, Batch, Container, Graphics, Sprite, Text, Texture } from "pixi.js";
+import { Application, Assets, Container, Graphics } from "pixi.js";
 import { State } from "./classes/state";
 import { GameMenu } from "./classes/game-menu";
+import { GameUI } from "./classes/game-ui";
 import worldData from "../data/all-data.json";
-import goldCoinIconSrc from "./images/menu/gold-coin.png";
 import {
   detectCollision,
   drawArrowToGraphics,
   getLineAngle,
   getPerpendicularLineAtStart,
 } from "./helpers/geom";
-import { colors } from "./helpers/constants";
 import { PickingStateDetails, Player, ServerToClientEvent, Unit } from "./types/shared";
 import { channel, sendEventToServer } from "./helpers/geckos-client";
-import { collapseTextChangeRangesAcrossMultipleVersions } from "typescript";
 
 const UNIT_STEP = 0.1;
 const UPGRADE_PRICES = [250, 500, 1000, 2000];
@@ -35,13 +33,7 @@ export class GameState {
   private app: Application;
   private graphics: Graphics;
   private uiLayer: Container;
-  private currencyHud: Container;
-  private currencyBg: Graphics;
-  private currencyIcon: Sprite;
-  private currencyText: Text;
-  private pickingTurnHud: Container;
-  private pickingTurnBg: Graphics;
-  private pickingTurnText: Text;
+  private gameUI: GameUI;
   private goldCount: number = 1250;
   private zoom: number = 1;
   private maxZoom: number = 15;
@@ -59,42 +51,16 @@ export class GameState {
   private pickingStateDetails?: PickingStateDetails;
 
   constructor(id: string, players: Player[]) {
-    this.app = new Application();
-    this.graphics = new Graphics();
-    this.uiLayer = new Container();
-    this.currencyHud = new Container();
-    this.currencyBg = new Graphics();
-    this.currencyIcon = new Sprite(Texture.WHITE);
-    this.currencyText = new Text({
-      text: this.goldCount.toLocaleString("en-US"),
-      anchor: { x: 1, y: 0.5 },
-      style: {
-        fontSize: 30,
-        fontWeight: "800",
-        fill: "#FFFFFF",
-        fontFamily: "Inter",
-        letterSpacing: 0.8,
-      },
-    });
-    this.pickingTurnHud = new Container();
-    this.pickingTurnBg = new Graphics();
-    this.pickingTurnText = new Text({
-      text: "",
-      anchor: { x: 0.5, y: 0.5 },
-      style: {
-        fontSize: 20,
-        fontWeight: "700",
-        fill: "#FFFFFF",
-        fontFamily: "Inter",
-        align: "center",
-      },
-    });
-    this.dragArrow = new Graphics();
-    this.gameMenu = new GameMenu();
     this.id = id;
     this.players = players;
     this.myPlayerId = channel.id || "";
     this.goldCount = this.players.find((player) => player.id === this.myPlayerId)?.coin || 0;
+    this.app = new Application();
+    this.graphics = new Graphics();
+    this.uiLayer = new Container();
+    this.gameUI = new GameUI(this.players, this.myPlayerId, this.goldCount);
+    this.dragArrow = new Graphics();
+    this.gameMenu = new GameMenu();
     this.gameMenu.setOnUpgrade(() => {
       const selectedState = this.getStateById(this.selectedStateId);
       if (!selectedState) return;
@@ -108,8 +74,6 @@ export class GameState {
         },
       });
     });
-    this.setupCurrencyHud();
-    this.setupPickingTurnHud();
     this.updateUpgradeMenuInfo();
 
     void this.init();
@@ -300,101 +264,13 @@ export class GameState {
   }
 
   private drawStateLabel(state: State) {
-    state.drawMarker(false, this.players, this.myPlayerId);
+    const isDestination = this.arrowDestinationStateId === state.id;
+    state.drawMarker(isDestination, this.players, this.myPlayerId);
   }
   private drawStateLabels() {
     for (const state of this.states) {
       this.drawStateLabel(state);
     }
-  }
-  private setupCurrencyHud() {
-    this.currencyHud.eventMode = "none";
-    this.currencyHud.addChild(this.currencyBg);
-
-    this.currencyIcon.anchor.set(0.5);
-    this.currencyIcon.width = 25;
-    this.currencyIcon.height = 25;
-    this.currencyIcon.tint = "#F59E0B";
-    this.currencyHud.addChild(this.currencyIcon);
-
-    this.currencyText.resolution = 2;
-    this.currencyHud.addChild(this.currencyText);
-    void this.loadCurrencyIcon();
-  }
-  private setupPickingTurnHud() {
-    this.pickingTurnHud.eventMode = "none";
-    this.pickingTurnHud.visible = false;
-    this.pickingTurnHud.addChild(this.pickingTurnBg);
-    this.pickingTurnHud.addChild(this.pickingTurnText);
-  }
-  private async loadCurrencyIcon() {
-    try {
-      const coinTexture = await Assets.load(goldCoinIconSrc);
-      this.currencyIcon.texture = coinTexture as Texture;
-      this.currencyIcon.tint = 0xffffff;
-    } catch (error) {
-      console.error("Failed to load currency icon", error);
-    }
-  }
-  private updateCurrencyHudLayout() {
-    const rightPadding = 0;
-    const topPadding = 0;
-    const hudHeight = 58;
-    const hudWidth = 160;
-    const leftPadding = 14;
-    const iconGap = 10;
-
-    this.currencyHud.position.set(this.app.screen.width - hudWidth - rightPadding, topPadding);
-    this.currencyBg.clear();
-    this.currencyBg.roundRect(0, 0, hudWidth, hudHeight, 0).fill({ color: "#0F172A", alpha: 0.92 });
-    this.currencyBg.roundRect(0, 0, hudWidth, hudHeight, 0).stroke({
-      color: "#334155",
-      width: 2,
-      alpha: 1,
-    });
-
-    this.currencyText.text = this.goldCount.toLocaleString("en-US");
-    this.currencyText.anchor.set(0, 0.5);
-    this.currencyIcon.position.set(leftPadding + this.currencyIcon.width / 2, hudHeight / 2);
-    this.currencyText.position.set(
-      this.currencyIcon.position.x + this.currencyIcon.width / 2 + iconGap,
-      hudHeight / 2,
-    );
-  }
-  private updatePickingTurnHudLayout() {
-    const details = this.pickingStateDetails;
-    if (!details?.isActive) {
-      this.pickingTurnHud.visible = false;
-      return;
-    }
-
-    const isMyTurn = details.currentPlayerId === this.myPlayerId;
-    const activePlayer = this.players.find((player) => player.id === details.currentPlayerId);
-    this.pickingTurnText.text = isMyTurn
-      ? `It is your turn to pick the state. Remaining picks: ${details.picksRemaining}`
-      : `${activePlayer?.name || "Other player"}'s turn to pick state... Remaining picks: ${details.picksRemaining}`;
-
-    const horizontalPadding = 16;
-    const verticalPadding = 10;
-    const hudWidth = this.pickingTurnText.width + horizontalPadding * 2;
-    const hudHeight = this.pickingTurnText.height + verticalPadding * 2;
-    const topPadding = 10;
-
-    this.pickingTurnHud.visible = true;
-    this.pickingTurnHud.position.set((this.app.screen.width - hudWidth) / 2, topPadding);
-
-    this.pickingTurnBg.clear();
-    this.pickingTurnBg.roundRect(0, 0, hudWidth, hudHeight, 10).fill({
-      color: "#0B1220",
-      alpha: 0.9,
-    });
-    this.pickingTurnBg.roundRect(0, 0, hudWidth, hudHeight, 10).stroke({
-      color: isMyTurn ? "#22C55E" : "#64748B",
-      width: 2,
-      alpha: 1,
-    });
-
-    this.pickingTurnText.position.set(hudWidth / 2, hudHeight / 2);
   }
   private pickState(stateId: string) {
     sendEventToServer({
@@ -420,13 +296,11 @@ export class GameState {
     });
     this.app.stage.addChild(this.uiLayer);
     this.uiLayer.addChild(this.gameMenu.getContainer());
-    this.uiLayer.addChild(this.currencyHud);
-    this.uiLayer.addChild(this.pickingTurnHud);
+    this.uiLayer.addChild(this.gameUI.getContainer());
     this.gameMenu.setPosition(0, 0);
     this.gameMenu.setViewportSize(this.app.screen.width, this.app.screen.height);
+    this.gameUI.setViewportSize(this.app.screen.width, this.app.screen.height);
     this.gameMenu.show();
-    this.updateCurrencyHudLayout();
-    this.updatePickingTurnHudLayout();
 
     document.getElementById("pixi-container")!.appendChild(this.app.canvas);
 
@@ -620,8 +494,7 @@ export class GameState {
     });
     window.addEventListener("resize", () => {
       this.gameMenu.setViewportSize(this.app.screen.width, this.app.screen.height);
-      this.updateCurrencyHudLayout();
-      this.updatePickingTurnHudLayout();
+      this.gameUI.setViewportSize(this.app.screen.width, this.app.screen.height);
     });
     window.addEventListener("blur", stopDragging);
   }
@@ -697,12 +570,12 @@ export class GameState {
             this.goldCount = goldCount.goldCount;
           }
         }
-        this.updateCurrencyHudLayout();
+        this.gameUI.setGoldCount(this.goldCount);
         this.updateUpgradeMenuInfo();
       }
       if (event.type === "send-picking-state-details") {
         this.pickingStateDetails = event.data;
-        this.updatePickingTurnHudLayout();
+        this.gameUI.setPickingStateDetails(this.pickingStateDetails);
       }
     });
     //@ts-ignore
