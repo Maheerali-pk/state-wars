@@ -225,7 +225,7 @@ export class Game {
   private loadStates() {
     console.log(mapData.features);
     this.states = mapData.features
-      .filter(() => true)
+      .filter((state) => state.properties?.["CONTINENT"] === "Africa")
       .map((feature, i) => {
         const ownerIndex = dummyInitialStates.find((item) => item.states.includes(i))?.ownerIndex;
         const ownerId = this.players[ownerIndex ?? -1]?.userId || "-1";

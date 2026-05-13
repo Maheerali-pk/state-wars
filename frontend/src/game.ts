@@ -273,7 +273,9 @@ export class GameState {
     });
   }
   public loadMapData(mapData: FeatureCollection) {
-    const filteredFeatures = mapData.features.filter(() => true);
+    const filteredFeatures = mapData.features.filter(
+      (state) => state.properties?.["CONTINENT"] === "Africa",
+    );
     console.log(filteredFeatures, "filteredFeatures");
     filteredFeatures.forEach((feature, index) => {
       const newState = new State(index.toString() || "", feature.properties?.name || "", feature);
