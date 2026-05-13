@@ -11,15 +11,33 @@
 <body>
     <div id="app">
         <div id="main-page" class="page">
-            <h1>Lobbies</h1>
-            <button id="create-lobby-btn">Create lobby</button>
-            <ul id="lobby-list"></ul>
+            <section class="hud-card">
+                <header class="page-header">
+                    <p class="eyebrow">Matchmaking</p>
+                    <h1>StateIO Lobbies</h1>
+                    <p class="page-subtitle">Create a room or join an active match with your squad.</p>
+                </header>
+                <div class="page-actions">
+                    <button id="create-lobby-btn" class="btn btn-primary">Create lobby</button>
+                    <p id="connection-status" class="status-badge">Connecting...</p>
+                </div>
+                <ul id="lobby-list" class="lobby-list"></ul>
+            </section>
         </div>
         <div id="lobby-page" class="page hidden">
-            <h1 id="lobby-title">Lobby</h1>
-            <ul id="lobby-users-list"></ul>
-            <button id="start-lobby-btn" class="hidden">Start</button>
-            <p>Waiting for host to start.</p>
+            <section class="hud-card">
+                <header class="page-header">
+                    <p class="eyebrow">Lobby Room</p>
+                    <h1 id="lobby-title">Lobby</h1>
+                    <p id="lobby-subtitle" class="page-subtitle">Invite players and get ready.</p>
+                </header>
+                <p id="player-count-badge" class="status-badge">0 players</p>
+                <ul id="lobby-users-list" class="player-list"></ul>
+                <div class="lobby-footer">
+                    <p id="lobby-waiting-text" class="muted-text">Waiting for host to start.</p>
+                    <button id="start-lobby-btn" class="btn btn-primary hidden">Start match</button>
+                </div>
+            </section>
         </div>
         <div id="pixi-container" class="hidden"></div>
     </div>

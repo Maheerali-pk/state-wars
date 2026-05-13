@@ -71,6 +71,10 @@ type StartLobbyGameEvent = {
   type: "start-lobby-game";
   data: { lobbyId: string };
 };
+type ClientPingEvent = {
+  type: "ping";
+  data: { sentAt: number };
+};
 export type ClientToServerEvent =
   | JoinedQueueEvent
   | CreateUnitMovementEvent
@@ -78,7 +82,8 @@ export type ClientToServerEvent =
   | CreateLobbyEvent
   | JoinLobbyEvent
   | PickStateEvent
-  | StartLobbyGameEvent;
+  | StartLobbyGameEvent
+  | ClientPingEvent;
 
 type UpdateStatesEvent = {
   type: "update-states";
@@ -112,6 +117,10 @@ type UpdateLobbiesEvent = {
   type: "update-lobbies";
   data: Lobby[];
 };
+type ServerPongEvent = {
+  type: "pong";
+  data: { sentAt: number };
+};
 export type ServerToClientEvent =
   | UpdateStatesEvent
   | UpdateBatchMovementsEvent
@@ -120,7 +129,8 @@ export type ServerToClientEvent =
   | UpdateStateOwnerChangesEvent
   | UpdateGoldCount
   | UpdateLobbiesEvent
-  | SendPickingStateDetailsEvent;
+  | SendPickingStateDetailsEvent
+  | ServerPongEvent;
 
 export interface BackendState {
   id: string;

@@ -7,8 +7,8 @@ import { Player } from "../types/shared";
 export class State {
   private static readonly DEFAULT_FILL_COLOR = "#D7D2CB";
   private static readonly DEFAULT_BORDER_COLOR = "#5C677D";
-  private static readonly DEFAULT_BORDER_WIDTH = 0.2;
-  private static readonly SELECTED_BORDER_WIDTH = 0.4;
+  private static readonly DEFAULT_BORDER_WIDTH = 0.05;
+  private static readonly SELECTED_BORDER_WIDTH = 0.1;
   private static readonly HOVER_TINT_COLOR = "#ffffff";
   private static readonly HOVER_TINT_ALPHA = 0.2;
 
@@ -150,7 +150,7 @@ export class State {
     this.unitLabelElement.text = this.unitCount.toString();
   }
 
-  public drawMarker(isDestination: boolean, players: Player[], myPlayerId: string) {
+  public drawMarker(isDestination: boolean, players: Player[], myPlayerId: string, zoom: number) {
     if (this.markerElement) {
       this.markerElement.destroy();
     }
@@ -254,6 +254,7 @@ export class State {
     this.setMarkerElement(marker);
     label.scale.set(scale);
     label.position.set(0, 0);
+    marker.scale.set(0.7);
     marker.addChild(label);
     marker.addChild(arc);
 

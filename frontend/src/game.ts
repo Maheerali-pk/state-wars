@@ -1,5 +1,5 @@
 import { FeatureCollection } from "geojson";
-import { Application, Assets, Container, Graphics } from "pixi.js";
+import { Application, Assets, Container, Graphics, Text } from "pixi.js";
 import { State } from "./classes/state";
 import { GameMenu } from "./classes/game-menu";
 import { GameUI } from "./classes/game-ui";
@@ -14,7 +14,7 @@ import { PickingStateDetails, Player, ServerToClientEvent, Unit } from "./types/
 import { channel, sendEventToServer } from "./helpers/geckos-client";
 
 const UNIT_STEP = 0.1;
-const UPGRADE_PRICES = [250, 500, 1000, 2000];
+const UPGRADE_PRICES = [250, 500, 1000];
 
 const BATCH_MOVEMENT_COST = 25;
 const CHUNK_SIZE = 5;
@@ -37,8 +37,8 @@ export class GameState {
   private gameUI: GameUI;
   private goldCount: number = 1250;
   private zoom: number = 1;
-  private maxZoom: number = 15;
-  private minZoom: number = 0.1;
+  private maxZoom: number = 30;
+  private minZoom: number = 1;
   private isMobile: boolean = false;
   private activeTouchPointers: Map<number, { x: number; y: number }> = new Map();
   private isPinching: boolean = false;
@@ -54,6 +54,9 @@ export class GameState {
   private mouseButtonDown: number = -1;
   private dragArrow: Graphics;
   private gameMenu: GameMenu;
+  private pingText: Text;
+  private pingSamples: number[] = [];
+  private pingInterval: ReturnType<typeof setInterval> | null = null;
   private arrowStartPoint: { x: number; y: number } = { x: 0, y: 0 };
   private arrowDestinationStateId: string | null = null;
   private arrowStartStateId: string | null = null;
@@ -70,6 +73,16 @@ export class GameState {
     this.gameUI = new GameUI(this.players, this.myPlayerId, this.goldCount);
     this.dragArrow = new Graphics();
     this.gameMenu = new GameMenu();
+    this.pingText = new Text({
+      text: "Ping: -- ms",
+      anchor: { x: 1, y: 1 },
+      style: {
+        fontSize: 16,
+        fontWeight: "700",
+        fill: "#E2E8F0",
+        fontFamily: "Inter",
+      },
+    });
     this.gameMenu.setOnUpgrade(() => {
       const selectedState = this.getStateById(this.selectedStateId);
       if (!selectedState) return;
@@ -86,6 +99,35 @@ export class GameState {
     this.updateUpgradeMenuInfo();
 
     void this.init();
+  }
+  private refreshPingTextPosition() {
+    this.pingText.position.set(this.app.screen.width - 12, this.app.screen.height - 10);
+  }
+
+  private updatePingDisplay(rtt: number) {
+    this.pingSamples.push(rtt);
+    if (this.pingSamples.length > 5) {
+      this.pingSamples.shift();
+    }
+    const averagePing = Math.round(
+      this.pingSamples.reduce((sum, value) => sum + value, 0) / this.pingSamples.length,
+    );
+    this.pingText.text = `Ping: ${averagePing} ms`;
+    this.refreshPingTextPosition();
+  }
+
+  private startPingLoop() {
+    if (this.pingInterval) {
+      clearInterval(this.pingInterval);
+    }
+    const sendPing = () => {
+      sendEventToServer({
+        type: "ping",
+        data: { sentAt: Date.now() },
+      });
+    };
+    sendPing();
+    this.pingInterval = setInterval(sendPing, 2000);
   }
 
   private static readonly interBoldSrc = new URL("./fonts/Inter_18pt-Bold.ttf", import.meta.url)
@@ -231,12 +273,12 @@ export class GameState {
     });
   }
   public loadMapData(mapData: FeatureCollection) {
-    mapData.features
-      .filter((feature) => feature.properties?.["CONTINENT"] === "Africa")
-      .forEach((feature, index) => {
-        const newState = new State(index.toString() || "", feature.properties?.name || "", feature);
-        this.states.push(newState);
-      });
+    const filteredFeatures = mapData.features.filter(() => true);
+    console.log(filteredFeatures, "filteredFeatures");
+    filteredFeatures.forEach((feature, index) => {
+      const newState = new State(index.toString() || "", feature.properties?.name || "", feature);
+      this.states.push(newState);
+    });
   }
   private bringStateToFront(selectedState: State) {
     const maxStateChildIndex = this.states.reduce((maxIndex, state) => {
@@ -274,7 +316,7 @@ export class GameState {
 
   private drawStateLabel(state: State) {
     const isDestination = this.arrowDestinationStateId === state.id;
-    state.drawMarker(isDestination, this.players, this.myPlayerId);
+    state.drawMarker(isDestination, this.players, this.myPlayerId, this.zoom);
   }
   private drawStateLabels() {
     for (const state of this.states) {
@@ -366,9 +408,12 @@ export class GameState {
     this.app.stage.addChild(this.uiLayer);
     this.uiLayer.addChild(this.gameMenu.getContainer());
     this.uiLayer.addChild(this.gameUI.getContainer());
+    this.pingText.resolution = 2;
+    this.uiLayer.addChild(this.pingText);
     this.gameMenu.setPosition(0, 0);
     this.gameMenu.setViewportSize(this.app.screen.width, this.app.screen.height);
     this.gameUI.setViewportSize(this.app.screen.width, this.app.screen.height);
+    this.refreshPingTextPosition();
     this.gameMenu.show();
 
     document.getElementById("pixi-container")!.appendChild(this.app.canvas);
@@ -661,6 +706,7 @@ export class GameState {
     window.addEventListener("resize", () => {
       this.gameMenu.setViewportSize(this.app.screen.width, this.app.screen.height);
       this.gameUI.setViewportSize(this.app.screen.width, this.app.screen.height);
+      this.refreshPingTextPosition();
     });
     window.addEventListener("blur", stopDragging);
   }
@@ -674,6 +720,10 @@ export class GameState {
     //@ts-ignore
     channel.on("server-to-client", (event: ServerToClientEvent) => {
       console.log("event from backend", event);
+      if (event.type === "pong") {
+        const rtt = Math.max(0, Date.now() - event.data.sentAt);
+        this.updatePingDisplay(rtt);
+      }
       if (event.type === "update-states") {
         const states = event.data;
         console.log("update-states", states);
@@ -746,6 +796,7 @@ export class GameState {
     });
     //@ts-ignore
 
+    this.startPingLoop();
     this.update();
     setInterval(() => {
       this.update.bind(this)();

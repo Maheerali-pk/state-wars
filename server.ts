@@ -77,6 +77,13 @@ io.onConnection((channel) => {
   });
   //@ts-ignore
   channel.on("client-to-server", (data: ClientToServerEvent) => {
+    if (data.type === "ping") {
+      channel.emit("server-to-client", {
+        type: "pong",
+        data: { sentAt: data.data.sentAt },
+      });
+      return;
+    }
     if (data.type === "create-lobby") {
       lobbyManager.addLobby({
         id: crypto.randomUUID(),
